@@ -22,12 +22,12 @@ struct SlackConfigSheet: View {
     
     private let slackManifest = """
 display_information:
-  name: Minna Local
+  name: Minna AI
   description: Local-first AI context engine
   background_color: "#1a1a2e"
 features:
   bot_user:
-    display_name: Minna
+    display_name: Minna AI
     always_online: false
 oauth_config:
   scopes:
@@ -162,7 +162,7 @@ settings:
                     instructionRow(number: 1, text: "Copy the manifest below")
                     instructionRow(number: 2, text: "Go to api.slack.com/apps → Create New App → From an app manifest")
                     instructionRow(number: 3, text: "Paste the manifest and create your app")
-                    instructionRow(number: 4, text: "Install the app to your workspace")
+                    instructionRow(number: 4, text: "Click the green \"Install to Workspace\" button")
                 }
                 
                 // Manifest box
@@ -274,34 +274,6 @@ settings:
                         .overlay(
                             RoundedRectangle(cornerRadius: 6)
                                 .stroke(userToken.isEmpty ? CityPopTheme.border : CityPopTheme.success.opacity(0.5), lineWidth: 1)
-                        )
-                }
-                
-                // Bot Token (optional)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Bot User OAuth Token")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(CityPopTheme.textSecondary)
-                        
-                        Text("(optional)")
-                            .font(.system(size: 10))
-                            .foregroundColor(CityPopTheme.textMuted)
-                    }
-                    
-                    Text("Starts with xoxb- • For bot-specific features")
-                        .font(.system(size: 10))
-                        .foregroundColor(CityPopTheme.textMuted)
-                    
-                    SecureField("xoxb-...", text: $botToken)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12, design: .monospaced))
-                        .padding(10)
-                        .background(CityPopTheme.surface)
-                        .cornerRadius(6)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(CityPopTheme.border, lineWidth: 1)
                         )
                 }
                 

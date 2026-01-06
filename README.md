@@ -40,11 +40,13 @@ Now your AI knows about that Slack thread from last week.
 
 ## Why?
 
-LLMs are goldfish. Brilliant reasoning, zero recall. Your AI can architect distributed systems but has no idea your team deprecated that API last Tuesday.
+**Minna** (みんな) means "everyone." We believe memory shouldn't be locked in silos—it should be yours, running on your machine, for everyone who wants it.
 
-Minna syncs your actual work context—the decisions made in Slack, the meetings on your calendar, the PRs on GitHub—into a local embeddings database. When you ask a question, your AI can pull from months of context instead of just your current prompt.
+LLMs today are goldfish. Brilliant reasoning, zero recall. Your AI can architect distributed systems but has no idea your team deprecated that API last Tuesday. Minna is the unified memory layer that fixes this.
 
-We run everything locally because your Slack DMs with your cofounder about fundraising shouldn't live on someone else's server.
+We sync the fragments of your work context—the decisions made in Slack, the meetings on your calendar, the PRs on GitHub—into a local embeddings database. When you ask a question, your AI can pull from months of context instead of just your current prompt.
+
+Everything runs locally because your work conversations are yours—not training data for someone else's model.
 
 ---
 
@@ -63,11 +65,11 @@ You create your own Slack app (we don't use a shared app—that would defeat the
 
 ```yaml
 display_information:
-  name: Minna Local
+  name: Minna AI
   description: Local-first AI context engine
 features:
   bot_user:
-    display_name: Minna
+    display_name: Minna AI
     always_online: false
 oauth_config:
   scopes:
@@ -179,5 +181,5 @@ MIT
 ---
 
 <p align="center">
-  <strong>minna</strong> (皆) — everyone
+  <strong>Minna AI</strong> — memory for everyone
 </p>
