@@ -1,4 +1,4 @@
-# Minna Core
+# Minna
 
 Local context engine for AI. Syncs Slack, Google Workspace, and GitHub to a local vector DB, then exposes it via MCP so your AI tools can search your work history.
 
@@ -158,7 +158,7 @@ src/
 - [x] macOS app
 
 **Coming**
-- [ ] `pip install minna-core`
+- [ ] `pip install minna`
 - [ ] `brew install minna`
 - [ ] Signed macOS builds
 - [ ] Linear, Notion connectors
