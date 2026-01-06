@@ -1,0 +1,96 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Poetry
+poetry.lock
+
+# Minna specific
+.env
+*.db
+minna.db
+sync_state.json
+auth.json
+.minna/
+tokens.json
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Xcode
+*.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.xccheckout
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# Generated Xcode project (regenerate with xcodegen)
+src/minna_ep1/MinnaEP1.xcodeproj/
+
+# Build artifacts
+build/
+dist/
+*.app
+*.dmg
+*.zip
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
+
+# Logs
+*.log
+logs/
+
+# Jupyter (if any leaked in)
+.ipynb_checkpoints/
+*.ipynb
+
+# Local development
+.envrc
+.direnv/
+
+# Test artifacts
+tests/__pycache__/
+.hypothesis/

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "minna": {
+      "command": "python",
+      "args": ["-m", "minna.mcp_server"]
+    }
+  }
+}
