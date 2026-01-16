@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(Inject)
+import Inject
+#endif
 
 /// Minna Design System
 /// Linear-inspired clean aesthetic with City Pop accent colors
@@ -27,28 +30,44 @@ struct CityPopTheme {
     // MARK: - City Pop Accent Colors (Saturation-Consistent)
     // Per MediBang City Pop guide: colors at same saturation/lightness for cohesion
     
-    /// Primary accent - hot pink (baseline ~85% saturation)
+    /// Primary accent - hot pink (for primary actions like "Connect")
     static let accent = Color(red: 0.98, green: 0.32, blue: 0.5)
+    
+    /// Secondary action - rich blue (for secondary actions like "Sync")
+    static let accentSecondary = Color(red: 0.25, green: 0.48, blue: 0.85)
     
     /// Coral accent - for gradients (pairs with pink)
     static let accentCoral = Color(red: 1.0, green: 0.55, blue: 0.4)
     
-    /// Cyan accent - adjusted to match pink saturation
+    /// Cyan accent - brighter for highlights
     static let accentCyan = Color(red: 0.0, green: 0.78, blue: 0.82)
     
-    /// Success state - adjusted for saturation consistency
-    static let success = Color(red: 0.2, green: 0.75, blue: 0.55)
+    /// Purple accent - city pop nighttime vibe
+    static let accentPurple = Color(red: 0.58, green: 0.38, blue: 0.82)
     
-    /// Syncing/warning state - warm gold
-    static let syncing = Color(red: 0.96, green: 0.68, blue: 0.2)
+    /// Success state - teal-green (not too bright)
+    static let success = Color(red: 0.18, green: 0.70, blue: 0.58)
     
-    /// Error state
-    static let error = Color(red: 0.92, green: 0.32, blue: 0.32)
+    /// Syncing/warning state - warm gold/amber
+    static let syncing = Color(red: 0.92, green: 0.62, blue: 0.15)
+    
+    /// Warning alias (same as syncing)
+    static let warning = syncing
+    
+    /// Error state - muted coral-red
+    static let error = Color(red: 0.88, green: 0.35, blue: 0.35)
     
     // MARK: - City Pop Gradients
     
-    /// Sunset gradient for progress bars (pink to coral)
+    /// Progress bar gradient (blue to cyan - matches Sync button)
     static let progressGradient = LinearGradient(
+        colors: [accentSecondary, Color(red: 0.35, green: 0.65, blue: 0.95)],
+        startPoint: .leading,
+        endPoint: .trailing
+    )
+    
+    /// Sunset gradient for special accents (pink to coral)
+    static let sunsetGradient = LinearGradient(
         colors: [accent, accentCoral],
         startPoint: .leading,
         endPoint: .trailing
@@ -114,6 +133,8 @@ struct CityPopTheme {
             return Color(red: 0.26, green: 0.52, blue: 0.96) // Google blue
         case "github":
             return Color(red: 0.15, green: 0.15, blue: 0.18) // GitHub dark
+        case "cursor ai", "cursor":
+            return Color(red: 0.4, green: 0.8, blue: 0.6)   // Cursor teal-green
         default:
             return accent
         }
@@ -178,7 +199,14 @@ struct CardStyle: ViewModifier {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(CityPopTheme.border, lineWidth: 1)
             )
+            #if canImport(Inject)
+            .enableInjection()
+            #endif
     }
+
+    #if canImport(Inject)
+    @ObserveInjection var forceRedraw
+    #endif
 }
 
 extension View {

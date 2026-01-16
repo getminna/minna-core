@@ -61,11 +61,19 @@ class CredentialManager {
             // GitHub just needs PAT
             let pat = KeychainHelper.load(service: keychainService, account: "github_pat")
             return pat != nil ? .configured : .notConfigured
+
+        case .cursor:
+            // Local AI tool reads local files - always configured
+            return .configured
         }
     }
     
     /// Check if provider is ready to sync
     func isReady(for provider: Provider) -> Bool {
+        // Cursor doesn't need auth
+        if !provider.requiresAuth {
+            return true
+        }
         if case .configured = status(for: provider) {
             return true
         }
@@ -118,6 +126,9 @@ class CredentialManager {
             clearGitHubPAT()
         case .googleWorkspace:
             LocalOAuthManager.shared.clearCredentials(for: provider)
+        case .cursor:
+            // Local AI tool has no credentials to clear - reads local files
+            break
         }
     }
 }
@@ -152,9 +163,12 @@ class LocalOAuthManager: ObservableObject {
     private let googleTokenURL = "https://oauth2.googleapis.com/token"
     
     // Scopes we need
+    // Google OAuth scopes - read-only access to workspace data
+    // Drive scope includes Docs, Sheets, Slides, and Meet transcripts
     private let googleScopes = [
         "https://www.googleapis.com/auth/calendar.readonly",
         "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
         "https://www.googleapis.com/auth/userinfo.email",
         "https://www.googleapis.com/auth/userinfo.profile"
     ].joined(separator: " ")
@@ -349,11 +363,11 @@ class LocalOAuthManager: ObservableObject {
             // Send success response to browser
             let response = """
             HTTP/1.1 200 OK\r
-            Content-Type: text/html\r
+            Content-Type: text/html; charset=utf-8\r
             Connection: close\r
             \r
             <html>
-            <head><title>Minna - Connected!</title></head>
+            <head><meta charset="utf-8"><title>Minna - Connected!</title></head>
             <body style="font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f5f5f5;">
                 <div style="text-align: center;">
                     <h1 style="color: #333;">✅ Connected!</h1>
@@ -373,11 +387,11 @@ class LocalOAuthManager: ObservableObject {
             // Handle OAuth error
             let response = """
             HTTP/1.1 200 OK\r
-            Content-Type: text/html\r
+            Content-Type: text/html; charset=utf-8\r
             Connection: close\r
             \r
             <html>
-            <head><title>Minna - Error</title></head>
+            <head><meta charset="utf-8"><title>Minna - Error</title></head>
             <body style="font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #fff5f5;">
                 <div style="text-align: center;">
                     <h1 style="color: #c00;">❌ Authorization Failed</h1>

@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(Inject)
+import Inject
+#endif
 
 /// Slack configuration using App Manifest pattern
 /// User creates their own Slack App and provides tokens directly
@@ -78,7 +81,14 @@ settings:
         .onAppear {
             loadExistingTokens()
         }
+        #if canImport(Inject)
+        .enableInjection()
+        #endif
     }
+
+    #if canImport(Inject)
+    @ObserveInjection var forceRedraw
+    #endif
     
     // MARK: - Header
     
@@ -235,31 +245,58 @@ settings:
     private var tokenStep: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Instructions
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("After installing your app, find the tokens in:")
-                        .font(.system(size: 12))
-                        .foregroundColor(CityPopTheme.textSecondary)
-                    
-                    Text("OAuth & Permissions → OAuth Tokens for Your Workspace")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(CityPopTheme.textPrimary)
-                        .padding(8)
-                        .background(CityPopTheme.surface)
-                        .cornerRadius(4)
+                // Step 1: Install the app
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 10) {
+                        Text("1")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 20, height: 20)
+                            .background(CityPopTheme.accent)
+                            .cornerRadius(10)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Install the app to your workspace")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(CityPopTheme.textPrimary)
+                            
+                            Text("Click the green \"Install to Workspace\" button in Slack")
+                                .font(.system(size: 11))
+                                .foregroundColor(CityPopTheme.textSecondary)
+                        }
+                    }
                 }
                 
-                // User Token (primary)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("User OAuth Token")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(CityPopTheme.textSecondary)
+                // Step 2: Find and copy token
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 10) {
+                        Text("2")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 20, height: 20)
+                            .background(CityPopTheme.accent)
+                            .cornerRadius(10)
                         
-                        Text("(required)")
-                            .font(.system(size: 10))
-                            .foregroundColor(CityPopTheme.accent)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Copy your User OAuth Token")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(CityPopTheme.textPrimary)
+                            
+                            Text("OAuth & Permissions → OAuth Tokens for Your Workspace")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(CityPopTheme.textSecondary)
+                                .padding(6)
+                                .background(CityPopTheme.surface)
+                                .cornerRadius(4)
+                        }
                     }
+                }
+                
+                // Token input
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("User OAuth Token")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(CityPopTheme.textSecondary)
                     
                     Text("Starts with xoxp-")
                         .font(.system(size: 10))

@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(Inject)
+import Inject
+#endif
 
 /// Expandable provider row with sync history accordion
 struct TEProviderRow: View {
@@ -36,8 +39,15 @@ struct TEProviderRow: View {
             }
         }
         .background(CityPopTheme.surface)
+        #if canImport(Inject)
+        .enableInjection()
+        #endif
     }
-    
+
+    #if canImport(Inject)
+    @ObserveInjection var forceRedraw
+    #endif
+
     // MARK: - Main Row
     
     private var mainRow: some View {

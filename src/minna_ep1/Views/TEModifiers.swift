@@ -1,15 +1,35 @@
 import SwiftUI
+#if canImport(Inject)
+import Inject
+#endif
+
+// MARK: - InjectionNext Compatibility
+extension View {
+    @ViewBuilder
+    func injectionEnabled() -> some View {
+        #if canImport(Inject)
+        self.enableInjection()
+        #else
+        self
+        #endif
+    }
+}
 
 // MARK: - Status Indicator
 
 struct StatusIndicator: View {
     let status: SyncStatus
-    
+
     var body: some View {
         Circle()
             .fill(statusColor)
             .frame(width: 8, height: 8)
+            .injectionEnabled()
     }
+
+    #if canImport(Inject)
+    @ObserveInjection var forceRedraw
+    #endif
     
     private var statusColor: Color {
         switch status {
@@ -37,13 +57,19 @@ struct ProviderIcon: View {
                 .font(.system(size: size * 0.4, weight: .light)) // Thin 1px line weight
                 .foregroundColor(CityPopTheme.providerColor(for: provider.displayName))
         }
+        .injectionEnabled()
     }
-    
+
+    #if canImport(Inject)
+    @ObserveInjection var forceRedraw
+    #endif
+
     private var brandIcon: String {
         switch provider {
         case .slack: return "bubble.left.and.bubble.right"  // Conversation/channels
         case .googleWorkspace: return "calendar"             // Calendar is core to GWS
         case .github: return "arrow.triangle.branch"         // Git branching
+        case .cursor: return "brain.head.profile"            // AI brain
         }
     }
 }
@@ -81,7 +107,12 @@ struct SyncProgressView: View {
                     .foregroundColor(CityPopTheme.textMuted)
             }
         }
+        .injectionEnabled()
     }
+
+    #if canImport(Inject)
+    @ObserveInjection var forceRedraw
+    #endif
 }
 
 struct SyncProgress {
@@ -134,8 +165,13 @@ struct ActionButton: View {
             )
         }
         .buttonStyle(.plain)
+        .injectionEnabled()
     }
-    
+
+    #if canImport(Inject)
+    @ObserveInjection var forceRedraw
+    #endif
+
     private var foregroundColor: Color {
         switch style {
         case .primary: return .white
@@ -184,7 +220,12 @@ struct SectionHeader: View {
                     .foregroundColor(CityPopTheme.textSecondary)
             }
         }
+        .injectionEnabled()
     }
+
+    #if canImport(Inject)
+    @ObserveInjection var forceRedraw
+    #endif
 }
 
 // MARK: - Nav Item (legacy - kept for compatibility)
@@ -215,5 +256,10 @@ struct NavItem: View {
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
+        .injectionEnabled()
     }
+
+    #if canImport(Inject)
+    @ObserveInjection var forceRedraw
+    #endif
 }

@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/minna-core",
+    "crates/minna-ingest",
+    "crates/minna-vector",
+    "crates/minna-mcp",
+    "crates/minna-auth-bridge",
+    "crates/minna-server",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "io-util", "sync"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1"
+url = "2"
+async-trait = "0.1"
+base64 = "0.22"
+fastembed = "5.7.0"
+sqlite-vec = "0.1.7-alpha.2"
+libsqlite3-sys = "0.30"
+oauth2 = "5.0.0"
+keyring = "3.6"

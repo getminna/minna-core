@@ -94,3 +94,4 @@ logs/
 # Test artifacts
 tests/__pycache__/
 .hypothesis/
+github PAT.txt

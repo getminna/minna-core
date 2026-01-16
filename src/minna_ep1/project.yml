@@ -50,6 +50,10 @@ targets:
           CODE_SIGNING_REQUIRED: NO
           CODE_SIGNING_ALLOWED: NO
           CODE_SIGN_ENTITLEMENTS: ""
+          OTHER_LDFLAGS: ["-Xlinker", "-interposable"]
+          ENABLE_HARDENED_RUNTIME: NO
+          DISABLE_LIBRARY_VALIDATION: YES
+          EMIT_FRONTEND_COMMAND_LINES: YES
         Release:
           CODE_SIGN_ENTITLEMENTS: MinnaEP1.entitlements
     preBuildScripts: []
