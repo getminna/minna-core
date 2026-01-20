@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use minna_auth_bridge::{AuthToken, Provider, TokenStore};
 use std::path::PathBuf;
 
+use crate::admin_client::AdminClient;
 use crate::sources::{AuthType, Source};
 use crate::ui;
 
@@ -238,22 +239,68 @@ fn store_token(source: Source, token: &str) -> Result<()> {
     Ok(())
 }
 
-async fn trigger_sync(_source: Source) -> Result<()> {
-    // TODO: Connect to admin socket and trigger sync
-    // For now, show the expected UI
+async fn trigger_sync(source: Source) -> Result<()> {
+    let client = AdminClient::new();
 
-    let pb = ui::progress_bar(100, "Sprint Sync");
-    for i in 0..100 {
-        pb.set_position(i);
-        tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+    // Check if daemon is running
+    if !client.is_daemon_running() {
+        println!();
+        ui::info("Daemon not running. Start it to begin syncing:");
+        println!("    minna daemon start");
+        return Ok(());
     }
-    pb.finish_with_message("done");
 
-    println!();
-    ui::background_notice(
-        "Deep sync running in background (90 days of history).",
-        "Run `minna status` to check progress.",
-    );
+    // Check if daemon is ready
+    let status = client.get_status().await;
+    if let Ok(s) = &status {
+        if !s.ready {
+            println!();
+            ui::info("Daemon is starting up. Sync will begin shortly.");
+            ui::background_notice(
+                "Run `minna status` to check when ready.",
+                "",
+            );
+            return Ok(());
+        }
+    }
+
+    // Map source to provider name
+    let provider_name = match source {
+        Source::Slack => "slack",
+        Source::Linear => "linear",
+        Source::Github => "github",
+        Source::Notion => "notion", // Note: may not be implemented in daemon yet
+        Source::Atlassian => "atlassian", // Note: may not be implemented in daemon yet
+        Source::Google => "google",
+    };
+
+    // Start sync with sprint mode (recent items first)
+    let spinner = ui::spinner(&format!("Starting {} sync...", source.display_name()));
+
+    match client.sync_provider(provider_name, Some("sprint"), Some(7)).await {
+        Ok(result) => {
+            spinner.finish_and_clear();
+
+            if result.items_synced > 0 {
+                let pb = ui::progress_bar(result.items_synced as u64, "Sprint Sync");
+                pb.set_position(result.items_synced as u64);
+                pb.finish_with_message("done");
+            } else {
+                ui::success(&format!("{} sync started", source.display_name()));
+            }
+
+            println!();
+            ui::background_notice(
+                "Deep sync running in background (90 days of history).",
+                "Run `minna status` to check progress.",
+            );
+        }
+        Err(e) => {
+            spinner.finish_and_clear();
+            // Don't fail the whole add operation if sync fails
+            ui::info(&format!("Sync will start when daemon is ready: {}", e));
+        }
+    }
 
     Ok(())
 }

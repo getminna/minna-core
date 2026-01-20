@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+mod admin_client;
 mod commands;
 mod sources;
 mod ui;
