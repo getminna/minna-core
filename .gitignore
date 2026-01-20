@@ -74,6 +74,11 @@ dist/
 *.dmg
 *.zip
 
+# Rust
+target/
+engine/target/
+Cargo.lock
+
 # IDE
 .idea/
 .vscode/

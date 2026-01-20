@@ -7,6 +7,7 @@ members = [
     "crates/minna-mcp",
     "crates/minna-auth-bridge",
     "crates/minna-server",
+    "crates/minna-cli",
 ]
 
 [workspace.package]
@@ -33,3 +34,10 @@ sqlite-vec = "0.1.7-alpha.2"
 libsqlite3-sys = "0.30"
 oauth2 = "5.0.0"
 keyring = "3.6"
+clap = { version = "4", features = ["derive"] }
+dialoguer = { version = "0.11", features = ["fuzzy-select"] }
+indicatif = "0.17"
+console = "0.15"
+open = "5"
+tiny_http = "0.12"
+directories = "5"
