@@ -13,7 +13,7 @@ Your AI's memory. Local-first. Zero config.
 ## 30 Seconds to Memory
 
 ```bash
-brew install minna-ai/tap/minna
+brew install pong-init/tap/minna-core
 minna add linear
 ```
 
@@ -60,6 +60,8 @@ Your data stays on your machine. Always.
 
 **MCP-native.** Built for the [Model Context Protocol](https://modelcontextprotocol.io) from day one. Your agent calls Minna like any other tool—first-class memory for Claude, Cursor, and any MCP-compatible client. This is what Glean should have been.
 
+**Fast-Path Router.** When your agent requests a specific URL (a Linear issue, a Notion page, a Slack thread), Minna fetches it directly from the API instead of searching the index. Real-time data when you need it, cached results when you don't.
+
 **Secure by default.** Credentials stored in macOS Keychain. Tokens never hit disk unencrypted. Your data stays sovereign.
 
 **Unix philosophy.** Daemon + CLI + socket. Pipe it, script it, cron it. No GUI required.
@@ -69,7 +71,7 @@ Your data stays on your machine. Always.
 ## Installation
 
 ```bash
-brew install minna-ai/tap/minna
+brew install pong-init/tap/minna-core
 ```
 
 -----
@@ -168,6 +170,8 @@ Paste it. Watch your AI remember.
 |Command                 |What it does                              |
 |------------------------|------------------------------------------|
 |`minna add [sources...]`|Connect sources (interactive or explicit) |
+|`minna remove <source>` |Disconnect a source                       |
+|`minna sync [sources...]`|Fetch latest data from sources           |
 |`minna status`          |Show sources, sync progress, daemon health|
 |`minna setup [tool]`    |Configure MCP for your AI tool            |
 |`minna daemon status`   |Check if daemon is running                |
@@ -189,7 +193,7 @@ Paste it. Watch your AI remember.
 
 Each source syncs via async [Tokio](https://tokio.rs/) workers. Backfill 90 days in minutes, not hours.
 
-More coming. [Request a source →](https://github.com/minna-ai/minna/issues)
+More coming. [Request a source →](https://github.com/pong-init/minna-core/issues)
 
 -----
 
@@ -255,7 +259,7 @@ minna add slack  # Re-run for any source
 ## Uninstall
 
 ```bash
-brew uninstall minna
+brew uninstall minna-core
 rm -rf ~/.config/minna ~/.local/share/minna ~/.minna ~/.cache/minna
 ```
 

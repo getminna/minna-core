@@ -240,29 +240,20 @@ fn store_token(source: Source, token: &str) -> Result<()> {
 }
 
 async fn trigger_sync(source: Source) -> Result<()> {
-    let client = AdminClient::new();
+    // Ensure daemon is running (starts it if needed)
+    let is_ready = crate::commands::daemon::ensure_running().await?;
 
-    // Check if daemon is running
-    if !client.is_daemon_running() {
+    if !is_ready {
+        // Daemon started but not ready yet (embedding model loading)
         println!();
-        ui::info("Daemon not running. Start it to begin syncing:");
-        println!("    minna daemon start");
+        ui::background_notice(
+            "Sync will begin automatically when daemon is ready.",
+            "Run `minna status` to check progress.",
+        );
         return Ok(());
     }
 
-    // Check if daemon is ready
-    let status = client.get_status().await;
-    if let Ok(s) = &status {
-        if !s.ready {
-            println!();
-            ui::info("Daemon is starting up. Sync will begin shortly.");
-            ui::background_notice(
-                "Run `minna status` to check when ready.",
-                "",
-            );
-            return Ok(());
-        }
-    }
+    let client = AdminClient::new();
 
     // Map source to provider name
     let provider_name = match source {

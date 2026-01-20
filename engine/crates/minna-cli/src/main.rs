@@ -52,6 +52,17 @@ enum Commands {
         #[arg(value_name = "SOURCE")]
         source: String,
     },
+
+    /// Sync sources (fetch latest data)
+    Sync {
+        /// Sources to sync. If omitted, syncs all configured sources.
+        #[arg(value_name = "SOURCES")]
+        sources: Vec<String>,
+
+        /// Sync all configured sources
+        #[arg(long, short)]
+        all: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -96,5 +107,6 @@ async fn main() -> Result<()> {
             DaemonCommand::Logs { lines, follow } => commands::daemon::logs(lines, follow).await,
         },
         Commands::Remove { source } => commands::remove::run(&source).await,
+        Commands::Sync { sources, all } => commands::sync::run(sources, all).await,
     }
 }
