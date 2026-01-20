@@ -72,17 +72,21 @@ Your data stays on your machine. Always.
 
 ## Why Minna?
 
-**Fast.** Single Rust binary. Sub-millisecond queries over [Unix Domain Socket](https://en.wikipedia.org/wiki/Unix_domain_socket). No Electron. No JVM cold starts. No stdio overhead—your agent connects directly to a persistent daemon.
+**Fast.** Single Rust binary. Sub-millisecond queries over [Unix Domain Socket](https://en.wikipedia.org/wiki/Unix_domain_socket). No Electron, JVM cold starts or stdio overhead.
 
-**Smart retrieval.** Zero-config RAG pipeline powered by [Nomic Embed v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) with an 8K context window—built for real work conversations, not empty snippets. Hybrid search combines [SQLite-vec](https://github.com/asg017/sqlite-vec) semantic search with [FTS5](https://www.sqlite.org/fts5.html) full-text search. No reranker. No external API calls. Just results.
+**Always ready.** Your agent connects directly to a persistent daemon that maintains a rolling 90-day index (with an option to get history on demand). Your AI gets 'instant-recall' without waiting for API round-trips every time.
 
-**MCP-native.** Built for the [Model Context Protocol](https://modelcontextprotocol.io) from day one. Your agent calls Minna like any other tool—first-class memory for Claude, Cursor, and any MCP-compatible client. This is what Glean should have been.
+**Smart retrieval.** Zero-config RAG pipeline powered by [Nomic Embed v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) with an 8K context window—built for real work conversations, not empty snippets. Hybrid search combines [SQLite-vec](https://github.com/asg017/sqlite-vec) with [FTS5](https://www.sqlite.org/fts5.html). Semantic search for concepts + Full-text search for exact IDs and error codes. No other MCP server handles retrieval this deeply.
+
+**MCP-native.** Built for the [Model Context Protocol](https://modelcontextprotocol.io) from day one. Connect Minna like any other tool and gets first-class memory, auto configured for Claude and Cursor (and compatible with any MCP Client). This is what Glean should have been.
 
 **Fast-Path Router.** When your agent requests a specific URL (a Linear issue, a Notion page, a Slack thread), Minna fetches it directly from the API instead of searching the index. Real-time data when you need it, cached results when you don't.
 
 **Secure by default.** Credentials stored in macOS Keychain. Tokens never hit disk unencrypted. Your data stays sovereign.
 
-**Unix philosophy.** Daemon + CLI + socket. Pipe it, script it, cron it. No GUI required.
+**Optimized for agents.** Instead of dumping raw JSON from Slack into your prompt, Minna extracts the relevant snippets, chunks them semantically, and provides only the signal. Save 80% on token costs. 
+
+**Unix philosophy.** Daemon + CLI + socket. No GUI required.
 
 -----
 
