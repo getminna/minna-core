@@ -37,6 +37,10 @@ Two patterns:
 
 For Google, the user creates their own Google Cloud project, enables APIs, and provides credentials. Minna handles the OAuth dance but with the **user's app**, not a shared Minna app.
 
+Reference: [google_workspace_mcp](https://github.com/taylorwilsdon/google_workspace_mcp) uses the same pattern.
+
+**Key detail**: Use "Desktop Application" as the OAuth app type. This uses loopback redirect (`http://localhost:PORT/callback`) and doesn't require configuring redirect URIs in Google Cloud Console.
+
 The auth-bridge already has this: `authorize_url()`, `exchange_code()`, `refresh_token()`.
 
 ---
@@ -62,12 +66,40 @@ $ minna add slack
 💤 Deep sync running in background.
 ```
 
+### Google Flow (OAuth with user's app)
+
+```
+$ minna add google
+
+  To connect Google, you'll need OAuth credentials from a Google Cloud project.
+
+  1. Go to: https://console.cloud.google.com
+  2. Create a project (or select existing)
+  3. APIs & Services → Credentials → Create OAuth Client ID
+  4. Application type: Desktop Application
+  5. Copy the Client ID and Client Secret
+
+  Enable the APIs you want:
+    • Calendar: https://console.cloud.google.com/apis/library/calendar-json.googleapis.com
+    • Drive:    https://console.cloud.google.com/apis/library/drive.googleapis.com
+    • Gmail:    https://console.cloud.google.com/apis/library/gmail.googleapis.com
+
+? Paste your Client ID: ████████████████████████████
+? Paste your Client Secret: ████████████████████████████
+
+Opening browser for authorization...
+
+✔ Authorized. Connected to Google (user@example.com)
+
+⚡ Sprint Sync...  ████████████████████  89 items
+
+💤 Deep sync running in background.
+```
+
 ### Key Points
 
-- Token input is masked (password field)
-- Immediate verification before storing
-- Token goes straight to Keychain
-- No browser, no redirect server, no OAuth dance
+- Token-paste sources: masked input, immediate verification, no browser
+- Google: prompts for client_id + secret, then opens browser for consent
 
 ---
 
