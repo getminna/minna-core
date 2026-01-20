@@ -25,26 +25,42 @@ That's it. Your AI can now remember your work.
 
 Minna is a local context engine that connects your work tools to your AI.
 
-You don't query Minna directly. Your AI does. When you ask Claude or Cursor *"what's the status of Project Atlas?"*, the agent calls Minna, retrieves the relevant context from Linear/Slack/Notion, and gives you the answer.
+You don't query Minna directly. Your AI does. When you ask Claude or Cursor *"what's the status of Project Atlas?"*, the agent calls Minna, retrieves the relevant context from Linear/Slack/GitHub, and gives you the answer.
 
+**Before:**
 ```
 ┌─────────────────┐                        ┌─────────────────┐
-│  You            │  "status of Atlas?"    │  Claude/Cursor  │
-│                 │ ─────────────────────► │                 │
-└─────────────────┘                        └────────┬────────┘
-                                                    │
-                                           MCP tool call
-                                                    │
-                                                    ▼
+│                 │  "status of Atlas?"    │                 │
+│  You            │ ─────────────────────► │  Claude/Cursor  │
+│                 │ ◄───────────────────── │                 │
+└─────────────────┘  "I don't have info    └─────────────────┘
+                      on that. Let me
+                      search the web..."
+
+                      [wastes 10k tokens on nothing]
+```
+
+**With Minna:**
+```
+┌─────────────────┐                        ┌─────────────────┐
+│                 │  1. "status of Atlas?" │                 │
+│  You            │ ─────────────────────► │  Claude/Cursor  │
+│                 │ ◄───────────────────── │                 │
+└─────────────────┘  5. [progress /        └────────┬───▲────┘
+                        blockers /                  │   │
+                        action items]      2. query │   │ 4. context
+                                                    ▼   │
                                            ┌─────────────────┐
                                            │  Minna          │
                                            │  (local daemon) │
-                                           └─────────────────┘
+                                           └────────┬────────┘
+                                                    │
+                                              3. retrieve
                                                     │
                                     ┌───────────────┼───────────────┐
-                                    ▼               ▼               ▼
+                                    ▲               ▲               ▲
                                ┌────────┐     ┌────────┐     ┌────────┐
-                               │ Linear │     │ Slack  │     │ Notion │
+                               │ Linear │     │ Slack  │     │ GitHub │
                                └────────┘     └────────┘     └────────┘
 ```
 
