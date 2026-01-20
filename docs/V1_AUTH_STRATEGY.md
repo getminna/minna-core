@@ -8,25 +8,36 @@
 
 ## Decision
 
-**All sources use token/credential-based auth in v1.** No OAuth browser flows.
+**All sources use user-provided credentials.** No shared Minna OAuth apps.
+
+Two patterns:
+
+1. **Token-paste**: User gets token from settings page, pastes into CLI
+2. **OAuth with user's app**: User provides client_id + secret, CLI handles browser flow
 
 ---
 
 ## V1 Auth Methods
 
-| Source | Auth Method | What User Provides |
-|--------|-------------|-------------------|
-| Slack | User token | `xoxp-...` from Slack app settings |
-| Linear | API key | Personal API key from Linear settings |
-| GitHub | PAT | Fine-grained Personal Access Token |
-| Notion | Integration token | Internal integration secret |
-| Atlassian | API token | Token from id.atlassian.com/manage-profile/security/api-tokens |
+### Token-Paste (simple)
 
-### Not in V1
+| Source | What User Provides | How They Get It |
+|--------|-------------------|-----------------|
+| Slack | `xoxp-...` token | Create Slack app → Install → Copy from settings |
+| Linear | API key | Settings → API → Create Personal Key |
+| GitHub | PAT | Developer Settings → Fine-grained PAT |
+| Notion | Integration token | Create internal integration → Copy secret |
+| Atlassian | API token + email | id.atlassian.com → API tokens |
 
-| Source | Why Deferred |
-|--------|--------------|
-| Google Drive | Requires OAuth bridge (we'd handle the consent redirect) |
+### OAuth with User's App (requires browser flow)
+
+| Source | What User Provides | CLI Does |
+|--------|-------------------|----------|
+| Google | client_id + client_secret | Opens browser, captures redirect, exchanges code |
+
+For Google, the user creates their own Google Cloud project, enables APIs, and provides credentials. Minna handles the OAuth dance but with the **user's app**, not a shared Minna app.
+
+The auth-bridge already has this: `authorize_url()`, `exchange_code()`, `refresh_token()`.
 
 ---
 
@@ -90,7 +101,8 @@ Each source needs a quick verification call:
 | Linear | `viewer` query |
 | GitHub | `GET /user` |
 | Notion | `GET /v1/users/me` |
-| Atlassian | `GET /rest/api/3/myself` (requires email + token as Basic Auth) |
+| Atlassian | `GET /rest/api/3/myself` (email + token as Basic Auth) |
+| Google | Token exchange success = verified |
 
 ### Existing Rust Code
 
@@ -146,23 +158,32 @@ For v1, only the token option exists.
 
 ---
 
-## What This Removes from Scope
+## What This Means
 
 | Component | Status |
 |-----------|--------|
-| `LocalOAuthManager` equivalent | Not needed |
-| Local HTTP server (port 8847) | Not needed |
-| Browser launch + redirect capture | Not needed |
-| Google Drive connector | Deferred (only source requiring OAuth bridge) |
+| Shared Minna OAuth apps | Not needed (users bring their own) |
+| Local HTTP server (port 8847) | Needed for Google only |
+| Browser launch + redirect capture | Needed for Google only |
+| Token verification | Needed for all sources |
 
 ---
 
 ## Summary
 
-V1 is token-paste only:
+V1 uses user-provided credentials (no shared Minna OAuth apps):
+
+**Token-paste sources** (Slack, Linear, GitHub, Notion, Atlassian):
 1. User gets token from service's settings page
 2. `minna add {source}` prompts for token
-3. Token is verified, stored in Keychain
+3. Token verified, stored in Keychain
 4. Sync starts
 
-Ship tomorrow. Add OAuth polish later.
+**OAuth sources** (Google):
+1. User creates Google Cloud project, provides client_id + secret
+2. `minna add google` opens browser for consent
+3. User approves, redirects to localhost
+4. CLI exchanges code for tokens, stores in Keychain
+5. Sync starts
+
+The auth-bridge already has OAuth machinery. CLI needs local HTTP server for Google only.

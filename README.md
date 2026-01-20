@@ -178,17 +178,18 @@ Paste it. Watch your AI remember.
 
 ## Supported Sources
 
-|Source    |Auth Method                              |
-|----------|-----------------------------------------|
-|Slack     |User OAuth Token (`xoxp-...`)            |
-|Linear    |Personal API Key                         |
-|GitHub    |Fine-grained PAT                         |
-|Notion    |Internal Integration Token               |
-|Atlassian |API Token (id.atlassian.com)             |
+|Source       |Auth Method                              |
+|-------------|-----------------------------------------|
+|Slack        |User OAuth Token (`xoxp-...`)            |
+|Linear       |Personal API Key                         |
+|GitHub       |Fine-grained PAT                         |
+|Notion       |Internal Integration Token               |
+|Atlassian    |API Token (id.atlassian.com)             |
+|Google Drive |Your OAuth App (client_id + secret)      |
 
 Each source syncs via async [Tokio](https://tokio.rs/) workers. Backfill 90 days in minutes, not hours.
 
-More coming (Google Drive). [Request a source →](https://github.com/minna-ai/minna/issues)
+More coming. [Request a source →](https://github.com/minna-ai/minna/issues)
 
 -----
 
