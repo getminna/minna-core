@@ -20,13 +20,13 @@
 | Linear | API key | Personal API key from Linear settings |
 | GitHub | PAT | Fine-grained Personal Access Token |
 | Notion | Integration token | Internal integration secret |
+| Atlassian | API token | Token from id.atlassian.com/manage-profile/security/api-tokens |
 
 ### Not in V1
 
 | Source | Why Deferred |
 |--------|--------------|
-| Atlassian | Requires OAuth app setup |
-| Google Drive | Requires OAuth app setup |
+| Google Drive | Requires OAuth bridge (we'd handle the consent redirect) |
 
 ---
 
@@ -90,6 +90,7 @@ Each source needs a quick verification call:
 | Linear | `viewer` query |
 | GitHub | `GET /user` |
 | Notion | `GET /v1/users/me` |
+| Atlassian | `GET /rest/api/3/myself` (requires email + token as Basic Auth) |
 
 ### Existing Rust Code
 
@@ -152,7 +153,7 @@ For v1, only the token option exists.
 | `LocalOAuthManager` equivalent | Not needed |
 | Local HTTP server (port 8847) | Not needed |
 | Browser launch + redirect capture | Not needed |
-| OAuth app instructions in CLI | Not needed |
+| Google Drive connector | Deferred (only source requiring OAuth bridge) |
 
 ---
 
