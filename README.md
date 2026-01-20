@@ -1,185 +1,283 @@
 # Minna
 
-Local context engine for AI. Syncs Slack, Google Workspace, and GitHub to a local vector DB, then exposes it via MCP so your AI tools can search your work history.
+Your AI's memory. Local-first. Zero config.
 
-Works with Claude, Cursor, ChatGPT, and anything that speaks MCP.
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Built with Rust](https://img.shields.io/badge/Built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
+[![MCP Native](https://img.shields.io/badge/MCP-Native-purple.svg)](https://modelcontextprotocol.io)
+[![Local-first](https://img.shields.io/badge/Local--first-always-blue.svg)]()
+[![No telemetry](https://img.shields.io/badge/Telemetry-none-lightgrey.svg)]()
 
-Everything runs on your machine. No cloud, no SaaS, no fees or token burn.
+-----
 
-## Quickstart
+## 30 Seconds to Memory
 
 ```bash
-git clone https://github.com/minna-ai/minna-core.git
-cd minna-core
-poetry install
-
-# sync your slack
-python -m minna.cli sync --provider slack
-
-# start the MCP server
-python -m minna.mcp_server
+brew install minna-ai/tap/minna
+minna add linear
 ```
 
-Then point your AI at it. Example for Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+That's it. Your AI can now remember your work.
 
-```json
-{
-  "mcpServers": {
-    "minna": {
-      "command": "python",
-      "args": ["-m", "minna.mcp_server"],
-      "cwd": "/path/to/minna-core"
-    }
-  }
-}
+-----
+
+## What is Minna?
+
+Minna is a local context engine that connects your work tools to your AI.
+
+You don't query Minna directly. Your AI does. When you ask Claude or Cursor *"what's the status of Project Atlas?"*, the agent calls Minna, retrieves the relevant context from Linear/Slack/Notion, and gives you the answer.
+
+```
+┌─────────────────┐                        ┌─────────────────┐
+│  You            │  "status of Atlas?"    │  Claude/Cursor  │
+│                 │ ─────────────────────► │                 │
+└─────────────────┘                        └────────┬────────┘
+                                                    │
+                                           MCP tool call
+                                                    │
+                                                    ▼
+                                           ┌─────────────────┐
+                                           │  Minna          │
+                                           │  (local daemon) │
+                                           └─────────────────┘
+                                                    │
+                                    ┌───────────────┼───────────────┐
+                                    ▼               ▼               ▼
+                               ┌────────┐     ┌────────┐     ┌────────┐
+                               │ Linear │     │ Slack  │     │ Notion │
+                               └────────┘     └────────┘     └────────┘
 ```
 
-Now your AI knows about that Slack thread from last week.
+Your data stays on your machine. Always.
 
----
+-----
 
-## Why?
+## Why Minna?
 
-**Minna** (みんな) means "everyone." We believe memory shouldn't be locked in silos—it should be yours, running on your machine, for everyone who wants it.
+**Fast.** Single Rust binary. Sub-millisecond queries over [Unix Domain Socket](https://en.wikipedia.org/wiki/Unix_domain_socket). No Electron. No JVM cold starts. No stdio overhead—your agent connects directly to a persistent daemon.
 
-LLMs today are goldfish. Brilliant reasoning, zero recall. Your AI can architect distributed systems but has no idea your team deprecated that API last Tuesday. Minna is the unified memory layer that fixes this.
+**Smart retrieval.** Zero-config RAG pipeline powered by [Nomic Embed v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) with an 8K context window—built for real work conversations, not empty snippets. Hybrid search combines [SQLite-vec](https://github.com/asg017/sqlite-vec) semantic search with [FTS5](https://www.sqlite.org/fts5.html) full-text search. No reranker. No external API calls. Just results.
 
-We sync the fragments of your work context—the decisions made in Slack, the meetings on your calendar, the PRs on GitHub—into a local embeddings database. When you ask a question, your AI can pull from months of context instead of just your current prompt.
+**MCP-native.** Built for the [Model Context Protocol](https://modelcontextprotocol.io) from day one. Your agent calls Minna like any other tool—first-class memory for Claude, Cursor, and any MCP-compatible client. This is what Glean should have been.
 
-Everything runs locally because your work conversations are yours—not training data for someone else's model.
+**Secure by default.** Credentials stored in macOS Keychain. Tokens never hit disk unencrypted. Your data stays sovereign.
 
----
+**Unix philosophy.** Daemon + CLI + socket. Pipe it, script it, cron it. No GUI required.
 
-## Connecting Your Tools
+-----
 
-### Slack
+## Installation
 
-You create your own Slack app (we don't use a shared app—that would defeat the point):
-
-1. [api.slack.com/apps](https://api.slack.com/apps) → Create New App → From Manifest
-2. Paste the manifest below, install to workspace
-3. Grab your `xoxp-` token
-
-<details>
-<summary><strong>Slack Manifest</strong></summary>
-
-```yaml
-display_information:
-  name: Minna AI
-  description: Local-first AI context engine
-features:
-  bot_user:
-    display_name: Minna AI
-    always_online: false
-oauth_config:
-  scopes:
-    user:
-      - channels:history
-      - channels:read
-      - groups:history
-      - groups:read
-      - im:history
-      - im:read
-      - mpim:history
-      - mpim:read
-      - users:read
-      - search:read
-      - team:read
-    bot:
-      - channels:history
-      - channels:read
-      - groups:history
-      - groups:read
-      - im:history
-      - im:read
-      - mpim:history
-      - mpim:read
-      - users:read
-settings:
-  org_deploy_enabled: false
-  socket_mode_enabled: false
-  token_rotation_enabled: false
+```bash
+brew install minna-ai/tap/minna
 ```
-</details>
 
-### Google Workspace
+-----
 
-1. [Google Cloud Console](https://console.cloud.google.com) → Create project
-2. Enable Calendar API + Gmail API
-3. Create OAuth credentials (Desktop app), redirect URI: `http://127.0.0.1:8847/callback`
-4. Enter Client ID/Secret in Minna
+## Connect Your Sources
 
-OAuth happens entirely on your machine.
+### Interactive
 
-### GitHub
+```bash
+minna add
+```
 
-[Fine-grained PAT](https://github.com/settings/tokens?type=beta) with read access.
+Select the sources you use. Minna walks you through each one.
 
----
+### Explicit
 
-## macOS App
+```bash
+minna add slack linear github
+```
 
-Prefer clicking to typing? Grab the app from [Releases](https://github.com/minna-ai/minna-core/releases).
+Connects all three in sequence.
 
-> **Note**: Unsigned—right-click → Open to bypass Gatekeeper.
+### What Happens
 
----
+For sources like Slack and Linear, a browser opens—click Approve and you're done.
+
+For sources that require credentials (Atlassian, Google), Minna gives you step-by-step instructions.
+
+```
+$ minna add linear
+
+? How would you like to connect Linear?
+  → Open browser (recommended)
+    Paste a Personal Access Token
+
+Opening browser...
+
+✔ Linear connected.
+
+⚡ Sprint Sync...  ████████████████████  142 artifacts
+
+💤 Deep sync running in background (90 days of history).
+   Run `minna status` to check progress.
+```
+
+-----
+
+## Connect Your AI
+
+After your first source syncs, Minna asks which AI tool you use:
+
+```
+? Which AI tool do you use?
+  → Cursor
+    Claude Code
+    VS Code + Continue
+    Windsurf
+    Other / Manual
+```
+
+Select your tool. Minna finds the config file and adds itself:
+
+```
+✔ Found ~/.cursor/mcp.json
+? Add Minna to Cursor? (Y/n) y
+
+✔ Done. Restart Cursor to activate.
+```
+
+No JSON to copy. No config to edit. Just restart your editor.
+
+-----
+
+## Test the Signal
+
+Once setup completes:
+
+```
+────────────────────────────────────────────────────────
+  ✔ Ready.
+
+  Copied to clipboard:
+
+    What's the status of Project Atlas?
+
+  Paste into chat (⌘V) and hit Enter.
+────────────────────────────────────────────────────────
+```
+
+Paste it. Watch your AI remember.
+
+-----
+
+## Commands
+
+|Command                 |What it does                              |
+|------------------------|------------------------------------------|
+|`minna add [sources...]`|Connect sources (interactive or explicit) |
+|`minna status`          |Show sources, sync progress, daemon health|
+|`minna setup [tool]`    |Configure MCP for your AI tool            |
+|`minna daemon status`   |Check if daemon is running                |
+|`minna daemon restart`  |Restart the background daemon             |
+|`minna daemon logs`     |Tail daemon logs                          |
+
+-----
+
+## Supported Sources
+
+|Source                     |Auth Method               |
+|---------------------------|--------------------------|
+|Slack                      |Browser (OAuth)           |
+|Linear                     |Browser (OAuth)           |
+|GitHub                     |Browser (OAuth) or PAT    |
+|Notion                     |Browser (OAuth)           |
+|Atlassian (Jira/Confluence)|Your OAuth App credentials|
+|Google Drive               |Your OAuth App credentials|
+
+Each source syncs via async [Tokio](https://tokio.rs/) workers. Backfill 90 days in minutes, not hours.
+
+More coming. [Request a source →](https://github.com/minna-ai/minna/issues)
+
+-----
 
 ## How It Works
 
-| Component | What | Why |
-|-----------|------|-----|
-| Connectors | Python workers for Slack/Google/GitHub | Fetch via APIs |
-| Embeddings | FastEmbed | Local, no API calls |
-| Vector DB | SQLite + sqlite-vec | No server, just a file |
-| Credentials | macOS Keychain | System encryption |
-| Protocol | MCP | Works with Claude, Cursor, ChatGPT, etc. |
+Minna runs as a background daemon on your machine.
 
----
+When you install, Minna registers with macOS to start automatically on login. No terminal tab required. If something goes wrong:
 
-## Project Layout
-
-```
-src/
-├── minna/                  # Python backend
-│   ├── cli.py              # CLI entry point
-│   ├── mcp_server.py       # MCP server
-│   ├── ingestion/          # Connectors
-│   └── core/vector_db.py   # Embeddings + storage
-└── minna_ep1/              # macOS SwiftUI app
+```bash
+minna daemon restart
 ```
 
----
+Your AI connects to Minna via [MCP](https://modelcontextprotocol.io) (Model Context Protocol). Queries go over Unix Domain Socket—no stdio overhead, no process spawning per request. When you ask a question, the agent calls Minna's search tool, gets relevant context, and synthesizes the answer.
 
-## Status
+All data is stored locally:
 
-**Working**
-- [x] Slack, Google Workspace, GitHub sync
-- [x] Local OAuth (you provide your own credentials)
-- [x] MCP server (Claude, Cursor, ChatGPT, etc.)
-- [x] macOS app
+```
+~/.config/minna/config.toml    # Your settings
+~/.local/share/minna/db/       # Vector store + raw text
+~/.minna/mcp.sock              # Unix socket for MCP
+~/.cache/minna/logs/           # Daemon logs
+```
 
-**Coming**
-- [ ] `pip install minna`
-- [ ] `brew install minna`
-- [ ] Signed macOS builds
-- [ ] Linear, Notion connectors
+No cloud. No telemetry. Your credentials live in macOS Keychain.
 
----
+-----
 
-## Contributing
+## Troubleshooting
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). We'd love help with:
-- New connectors
-- Windows/Linux support
-- Security review
+**Minna isn't responding to my AI**
+
+```bash
+minna status
+```
+
+If the daemon isn't running:
+
+```bash
+minna daemon restart
+```
+
+**My source isn't syncing**
+
+```bash
+minna status
+```
+
+Check the sync status. If stuck:
+
+```bash
+minna daemon logs
+```
+
+**I need to re-authenticate a source**
+
+```bash
+minna add slack  # Re-run for any source
+```
+
+-----
+
+## Uninstall
+
+```bash
+brew uninstall minna
+rm -rf ~/.config/minna ~/.local/share/minna ~/.minna ~/.cache/minna
+```
+
+Credentials are removed from Keychain automatically.
+
+-----
+
+## Philosophy
+
+1. **Local-first.** Your data never leaves your machine.
+2. **Sovereign credentials.** You own the OAuth apps. You control access.
+3. **Zero telemetry.** We don't know what you search. We don't want to.
+4. **Unix philosophy.** One tool, one job. Composable. Scriptable.
+
+-----
 
 ## License
 
 MIT
 
----
+-----
 
 <p align="center">
-  <strong>Minna AI</strong> — memory for everyone
+  <i>Minna. Memory for everyone.</i>
 </p>

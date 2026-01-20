@@ -274,13 +274,17 @@ minna
 
 ---
 
-## Questions to Resolve
+## Decisions Made
 
-1. **Keep admin socket?** Or merge control into MCP tools?
-2. **Mac app fate?** Archive, refactor, or separate project?
-3. **Existing user migration?** Auto-migrate `~/Library/...` → `~/.config/...`?
-4. **Notion priority?** New README lists it as supported
-5. **Linear OAuth vs API key?** New README says "Browser (OAuth)"
+1. **Keep admin socket?** → **Yes, keep it.** Two sockets is correct architecture. The CLI hides this complexity from users. See `ARCHITECTURE_DECISION_SOCKETS.md`.
+
+2. **Mac app fate?** → **Separate project: "Minna Desktop"**. The Swift code (~10K lines) moves to its own repo. It becomes a thin wrapper around the CLI. See `MINNA_DESKTOP_EXTRACTION.md`.
+
+3. **Existing user migration?** → Defer. Handle path migration when CLI is functional.
+
+4. **Notion priority?** → Build after CLI is stood up. Connector work is sequenced after core CLI.
+
+5. **Linear OAuth vs API key?** → Build OAuth flow. Current API key approach is temporary.
 
 ---
 
