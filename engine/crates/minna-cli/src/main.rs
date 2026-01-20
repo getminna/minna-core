@@ -41,10 +41,10 @@ enum Commands {
         ui_test: bool,
     },
 
-    /// Configure MCP for your AI tool
+    /// Configure MCP for your AI tool (auto-detects current IDE)
     Setup {
-        /// AI tool to configure (cursor, claude-code, vscode, windsurf)
-        /// If omitted, auto-detects installed tools.
+        /// AI tool to configure (claude-code, cursor, zed, antigravity, manual)
+        /// If omitted, auto-detects current IDE or installed tools.
         #[arg(value_name = "TOOL")]
         tool: Option<String>,
 

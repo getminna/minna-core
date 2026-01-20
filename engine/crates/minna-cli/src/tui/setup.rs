@@ -22,10 +22,10 @@ use std::time::Duration;
 use super::theme;
 
 const TOOLS: &[(&str, &str, &str)] = &[
-    ("cursor", "Cursor", "~/.cursor/mcp.json"),
     ("claude-code", "Claude Code", "~/.claude/claude_desktop_config.json"),
-    ("vscode", "VS Code + Continue", "~/.continue/config.json"),
-    ("windsurf", "Windsurf", "~/.windsurf/mcp.json"),
+    ("cursor", "Cursor", "~/.cursor/mcp.json"),
+    ("zed", "Zed", "~/.config/zed/settings.json"),
+    ("antigravity", "Antigravity", "~/.config/antigravity/mcp_config.json"),
 ];
 
 struct SetupState {

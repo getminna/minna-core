@@ -12,37 +12,56 @@ struct AiTool {
 
 const AI_TOOLS: &[AiTool] = &[
     AiTool {
-        name: "cursor",
-        display_name: "Cursor",
-        config_paths: &["~/.cursor/mcp.json"],
-    },
-    AiTool {
         name: "claude-code",
         display_name: "Claude Code",
         config_paths: &["~/.claude/claude_desktop_config.json"],
     },
     AiTool {
-        name: "vscode",
-        display_name: "VS Code + Continue",
-        config_paths: &["~/.continue/config.json"],
+        name: "cursor",
+        display_name: "Cursor",
+        config_paths: &["~/.cursor/mcp.json"],
     },
     AiTool {
-        name: "windsurf",
-        display_name: "Windsurf",
-        config_paths: &["~/.windsurf/mcp.json"],
+        name: "zed",
+        display_name: "Zed",
+        config_paths: &["~/.config/zed/settings.json"],
+    },
+    AiTool {
+        name: "antigravity",
+        display_name: "Antigravity",
+        config_paths: &["~/.config/antigravity/mcp_config.json"],
     },
 ];
 
 pub async fn run(tool: Option<String>) -> Result<()> {
+    // Handle explicit "manual" request
+    if tool.as_deref() == Some("manual") {
+        return show_manual_instructions();
+    }
+
     let tool = match tool {
         Some(name) => {
+            // Explicit tool specified
             AI_TOOLS
                 .iter()
                 .find(|t| t.name == name)
-                .ok_or_else(|| anyhow!("Unknown tool: {}. Valid: cursor, claude-code, vscode, windsurf", name))?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Unknown tool: {}. Valid: claude-code, cursor, zed, antigravity, manual",
+                        name
+                    )
+                })?
         }
         None => {
-            // Auto-detect or ask
+            // Try auto-detection first!
+            if let Some(detected) = detect_current_ide() {
+                // Auto-magic: configure silently and celebrate
+                setup_tool_silent(detected).await?;
+                show_magic_success(detected);
+                return Ok(());
+            }
+
+            // Fall back to installed tools detection
             let detected = detect_installed_tools();
             if detected.is_empty() {
                 return show_manual_instructions();
@@ -59,6 +78,61 @@ pub async fn run(tool: Option<String>) -> Result<()> {
     };
 
     setup_tool(tool).await
+}
+
+/// Detect the current IDE based on environment variables
+fn detect_current_ide() -> Option<&'static AiTool> {
+    // Claude Code: CLAUDECODE=1
+    if std::env::var("CLAUDECODE").is_ok() {
+        return AI_TOOLS.iter().find(|t| t.name == "claude-code");
+    }
+
+    // Check VSCODE_* paths for Cursor/Antigravity
+    let vscode_path = std::env::var("VSCODE_IPC_HOOK")
+        .or_else(|_| std::env::var("VSCODE_CODE_CACHE_PATH"))
+        .unwrap_or_default();
+
+    if vscode_path.contains("Antigravity") {
+        return AI_TOOLS.iter().find(|t| t.name == "antigravity");
+    }
+    if vscode_path.contains("Cursor") {
+        return AI_TOOLS.iter().find(|t| t.name == "cursor");
+    }
+
+    // Zed: ZED_TERM or TERM_PROGRAM=Zed
+    if std::env::var("ZED_TERM").is_ok()
+        || std::env::var("TERM_PROGRAM")
+            .map(|v| v == "Zed")
+            .unwrap_or(false)
+    {
+        return AI_TOOLS.iter().find(|t| t.name == "zed");
+    }
+
+    None
+}
+
+/// Show a big celebration message after auto-magic setup
+fn show_magic_success(tool: &AiTool) {
+    println!();
+    println!(
+        "  {}",
+        console::style("✨ MAGIC ✨").magenta().bold()
+    );
+    println!();
+    println!(
+        "  {} detected {} and configured Minna automatically!",
+        console::style("Minna").cyan().bold(),
+        console::style(tool.display_name).green().bold()
+    );
+    println!();
+    println!("  {}", console::style("Your AI now has memory.").dim());
+    println!();
+    println!(
+        "  {} Restart {} to activate.",
+        console::style("→").yellow(),
+        console::style(tool.display_name).white().bold()
+    );
+    println!();
 }
 
 fn detect_installed_tools() -> Vec<&'static AiTool> {
@@ -83,6 +157,33 @@ fn expand_path(path: &str) -> PathBuf {
     }
 }
 
+/// Silent setup - no prompts, used for auto-magic detection
+async fn setup_tool_silent(tool: &AiTool) -> Result<()> {
+    let config_path = tool
+        .config_paths
+        .first()
+        .map(|p| expand_path(p))
+        .ok_or_else(|| anyhow!("No config path for {}", tool.name))?;
+
+    let mut config: serde_json::Value = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)?;
+        serde_json::from_str(&content).unwrap_or_else(|_| json!({}))
+    } else {
+        json!({})
+    };
+
+    let socket_path = get_socket_path();
+    inject_mcp_config(&mut config, tool.name, &socket_path);
+
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+
+    Ok(())
+}
+
+/// Interactive setup with prompts
 async fn setup_tool(tool: &AiTool) -> Result<()> {
     let config_path = tool
         .config_paths
@@ -113,39 +214,8 @@ async fn setup_tool(tool: &AiTool) -> Result<()> {
         json!({})
     };
 
-    // Add Minna to mcpServers
     let socket_path = get_socket_path();
-
-    let minna_config = json!({
-        "command": "nc",
-        "args": ["-U", socket_path.to_string_lossy()],
-    });
-
-    // For different tools, the config structure varies
-    match tool.name {
-        "cursor" | "windsurf" => {
-            if config.get("mcpServers").is_none() {
-                config["mcpServers"] = json!({});
-            }
-            config["mcpServers"]["minna"] = minna_config;
-        }
-        "claude-code" => {
-            if config.get("mcpServers").is_none() {
-                config["mcpServers"] = json!({});
-            }
-            config["mcpServers"]["minna"] = minna_config;
-        }
-        "vscode" => {
-            // Continue uses a different format
-            if config.get("models").is_none() {
-                config["models"] = json!([]);
-            }
-            // Add context provider instead
-            ui::info("VS Code + Continue requires manual configuration.");
-            return show_manual_instructions();
-        }
-        _ => {}
-    }
+    inject_mcp_config(&mut config, tool.name, &socket_path);
 
     // Write config
     if let Some(parent) = config_path.parent() {
@@ -159,6 +229,35 @@ async fn setup_tool(tool: &AiTool) -> Result<()> {
     Ok(())
 }
 
+/// Inject MCP config into the appropriate location based on tool type
+fn inject_mcp_config(config: &mut serde_json::Value, tool_name: &str, socket_path: &PathBuf) {
+    let minna_config = json!({
+        "command": "nc",
+        "args": ["-U", socket_path.to_string_lossy()],
+    });
+
+    match tool_name {
+        "cursor" | "claude-code" | "antigravity" => {
+            if config.get("mcpServers").is_none() {
+                config["mcpServers"] = json!({});
+            }
+            config["mcpServers"]["minna"] = minna_config;
+        }
+        "zed" => {
+            // Zed uses 'context_servers' with a different structure
+            if config.get("context_servers").is_none() {
+                config["context_servers"] = json!({});
+            }
+            config["context_servers"]["minna"] = json!({
+                "source": "custom",
+                "command": "nc",
+                "args": ["-U", socket_path.to_string_lossy()],
+            });
+        }
+        _ => {}
+    }
+}
+
 fn show_manual_instructions() -> Result<()> {
     let socket_path = get_socket_path();
 
@@ -166,8 +265,16 @@ fn show_manual_instructions() -> Result<()> {
     println!("  Add this to your MCP configuration:");
     println!();
     println!("  {}", console::style("{").dim());
-    println!("    {}\"mcpServers\"{}: {{", console::style("").cyan(), console::style("").dim());
-    println!("      {}\"minna\"{}: {{", console::style("").cyan(), console::style("").dim());
+    println!(
+        "    {}\"mcpServers\"{}: {{",
+        console::style("").cyan(),
+        console::style("").dim()
+    );
+    println!(
+        "      {}\"minna\"{}: {{",
+        console::style("").cyan(),
+        console::style("").dim()
+    );
     println!(
         "        {}\"command\"{}: {}\"nc\"{},",
         console::style("").cyan(),
@@ -176,7 +283,7 @@ fn show_manual_instructions() -> Result<()> {
         console::style("").dim()
     );
     println!(
-        "        {}\"args\"{}: [{}\"{}\"{}]",
+        "        {}\"args\"{}: [\"-U\", {}\"{}\"{}]",
         console::style("").cyan(),
         console::style("").dim(),
         console::style("").green(),
