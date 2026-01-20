@@ -37,6 +37,7 @@ sync_state.json
 auth.json
 .minna/
 tokens.json
+docs/
 
 # macOS
 .DS_Store
