@@ -13,7 +13,7 @@ Your AI's memory. Local-first. Zero config.
 ## 30 Seconds to Memory
 
 ```bash
-brew install pong-init/tap/minna-core
+brew install getminna/tap/minna-core
 minna add linear
 ```
 
@@ -71,7 +71,7 @@ Your data stays on your machine. Always.
 ## Installation
 
 ```bash
-brew install pong-init/tap/minna-core
+brew install getminna/tap/minna-core
 ```
 
 -----
@@ -193,7 +193,7 @@ Paste it. Watch your AI remember.
 
 Each source syncs via async [Tokio](https://tokio.rs/) workers. Backfill 90 days in minutes, not hours.
 
-More coming. [Request a source →](https://github.com/pong-init/minna-core/issues)
+More coming. [Request a source →](https://github.com/getminna/minna-core/issues)
 
 -----
 
