@@ -16,3 +16,5 @@ minna-ingest = { path = "../minna-ingest" }
 minna-vector = { path = "../minna-vector" }
 minna-auth-bridge = { path = "../minna-auth-bridge" }
 regex = { workspace = true }
+async-trait = { workspace = true }
+toml = { workspace = true }

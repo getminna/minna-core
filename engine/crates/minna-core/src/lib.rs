@@ -12,7 +12,11 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 pub mod progress;
+pub mod providers;
+
 pub use progress::{emit_progress, emit_result, emit_error, emit_warmup_progress, emit_ready};
+pub use providers::{ProviderRegistry, SyncProvider, SyncContext, ProvidersConfig};
+// SyncSummary is defined below and re-exported from providers for convenience
 
 pub use minna_auth_bridge::{AuthToken, TokenStore};
 pub use minna_ingest::{Document, IngestionEngine};
@@ -129,6 +133,63 @@ impl Core {
         // 3. Scrub orphaned embeddings
         self.vector.scrub_orphaned_embeddings().await?;
         Ok(())
+    }
+
+    /// Sync a provider using the extensible provider registry.
+    ///
+    /// This is the preferred method for new providers (Notion, Atlassian, etc.).
+    /// Legacy providers (Slack, GitHub, etc.) still use the direct sync_* methods
+    /// until they are migrated.
+    pub async fn sync_via_registry(
+        &self,
+        registry: &ProviderRegistry,
+        provider_name: &str,
+        since_days: Option<i64>,
+        mode: Option<&str>,
+    ) -> Result<providers::SyncSummary> {
+        let provider = registry.get(provider_name)
+            .ok_or_else(|| anyhow::anyhow!("Unknown or disabled provider: {}", provider_name))?;
+
+        // Create HTTP client
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .redirect(Policy::limited(5))
+            .build()?;
+
+        // Create sync context
+        let ctx = SyncContext {
+            ingest: &self.ingest,
+            vector: &self.vector,
+            embedder: &self.embedder,
+            http_client: &http_client,
+            registry,
+        };
+
+        provider.sync(&ctx, since_days, mode).await
+    }
+
+    /// Discover resources for a provider using the extensible registry.
+    pub async fn discover_via_registry(
+        &self,
+        registry: &ProviderRegistry,
+        provider_name: &str,
+    ) -> Result<serde_json::Value> {
+        let provider = registry.get(provider_name)
+            .ok_or_else(|| anyhow::anyhow!("Unknown or disabled provider: {}", provider_name))?;
+
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()?;
+
+        let ctx = SyncContext {
+            ingest: &self.ingest,
+            vector: &self.vector,
+            embedder: &self.embedder,
+            http_client: &http_client,
+            registry,
+        };
+
+        provider.discover(&ctx).await
     }
 }
 

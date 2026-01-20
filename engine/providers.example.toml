@@ -1,0 +1,106 @@
+# Minna Provider Configuration
+#
+# Copy this file to ~/Library/Application Support/Minna/providers.toml
+# to customize provider settings.
+#
+# Each provider can be enabled/disabled and has configurable auth settings.
+# The daemon will use sensible defaults if this file doesn't exist.
+
+# ============================================================================
+# EXISTING PROVIDERS (legacy sync implementations)
+# ============================================================================
+
+[providers.slack]
+enabled = true
+display_name = "Slack"
+[providers.slack.auth]
+type = "keychain"
+account = "slack_user_token"
+token_prefix = "xoxp-"
+
+[providers.github]
+enabled = true
+display_name = "GitHub"
+api_base_url = "https://api.github.com"
+[providers.github.auth]
+type = "keychain"
+account = "github_pat"
+token_prefix = "github_pat_"
+
+[providers.linear]
+enabled = true
+display_name = "Linear"
+api_base_url = "https://api.linear.app/graphql"
+[providers.linear.auth]
+type = "keychain"
+account = "linear_token"
+
+[providers.google]
+enabled = true
+display_name = "Google Workspace"
+[providers.google.auth]
+type = "oauth"
+token_account = "googleWorkspace_token"
+refresh_account = "googleWorkspace_refresh_token"
+client_id_account = "google_client_id"
+client_secret_account = "google_client_secret"
+
+# ============================================================================
+# NEW EXTENSIBLE PROVIDERS
+# ============================================================================
+
+[providers.notion]
+enabled = true
+display_name = "Notion"
+api_base_url = "https://api.notion.com/v1"
+[providers.notion.auth]
+type = "keychain"
+account = "notion_token"
+token_prefix = "secret_"
+[providers.notion.env_vars]
+# MINNA_NOTION_PAGE_LIMIT = "100"
+
+[providers.atlassian]
+enabled = true
+display_name = "Atlassian (Jira/Confluence)"
+api_base_url = "https://api.atlassian.com"
+[providers.atlassian.auth]
+type = "keychain_basic"
+account = "atlassian_token"
+[providers.atlassian.env_vars]
+# MINNA_JIRA_ISSUE_LIMIT = "100"
+# MINNA_CONFLUENCE_PAGE_LIMIT = "100"
+
+# ============================================================================
+# LOCAL PROVIDERS (no auth required)
+# ============================================================================
+
+[providers.cursor]
+enabled = true
+display_name = "Cursor"
+[providers.cursor.auth]
+type = "none"
+
+[providers.claude_code]
+enabled = true
+display_name = "Claude Code"
+[providers.claude_code.auth]
+type = "none"
+
+# ============================================================================
+# EXAMPLE: Adding a new provider
+# ============================================================================
+#
+# To add a new provider:
+# 1. Add configuration here
+# 2. Implement the SyncProvider trait in minna-core/src/providers/
+# 3. Register in ProviderRegistry::register_builtin_providers()
+#
+# [providers.airtable]
+# enabled = true
+# display_name = "Airtable"
+# api_base_url = "https://api.airtable.com/v0"
+# [providers.airtable.auth]
+# type = "keychain"
+# account = "airtable_token"
+# token_prefix = "pat"

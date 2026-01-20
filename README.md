@@ -298,6 +298,38 @@ Credentials are removed from Keychain automatically.
 
 -----
 
+## Contributing
+
+We'd love your help! The most impactful way to contribute is **adding new connectors**.
+
+We've built an extensible provider system that makes this straightforward:
+
+```rust
+#[async_trait]
+impl SyncProvider for YourProvider {
+    fn name(&self) -> &'static str { "yourservice" }
+
+    async fn sync(&self, ctx: &SyncContext, ...) -> Result<SyncSummary> {
+        // Fetch data → Create Documents → Index
+    }
+}
+```
+
+**Connectors we'd love:**
+- Airtable, Asana, Monday.com, Trello
+- Figma, Dropbox, Intercom
+- [See the full list →](CONTRIBUTING.md#connectors-wed-love)
+
+**Other ways to help:**
+- Add MCP tools (new query capabilities)
+- Add CLI commands
+- Fix bugs, improve performance
+- Write documentation
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+
+-----
+
 ## License
 
 MIT

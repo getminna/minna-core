@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 use tracing::{error, info};
 
-use minna_core::{Core, MinnaPaths, TokenStore};
+use minna_core::{Core, MinnaPaths, TokenStore, ProviderRegistry};
 use minna_auth_bridge::Provider;
 use minna_mcp::{McpContext, McpHandler, ToolRequest, ToolResponse};
 
@@ -18,13 +18,20 @@ use minna_mcp::{McpContext, McpHandler, ToolRequest, ToolResponse};
 struct ServerState {
     core: RwLock<Option<Core>>,
     paths: MinnaPaths,
+    registry: ProviderRegistry,
 }
 
 impl ServerState {
     fn new(paths: MinnaPaths) -> Self {
+        // Load provider registry (uses defaults if no config file)
+        let config_path = paths.base_dir.join("providers.toml");
+        let registry = ProviderRegistry::new(&config_path)
+            .unwrap_or_else(|_| ProviderRegistry::with_defaults());
+
         Self {
             core: RwLock::new(None),
             paths,
+            registry,
         }
     }
 
@@ -34,6 +41,10 @@ impl ServerState {
 
     async fn get_core(&self) -> Option<Core> {
         self.core.read().await.clone()
+    }
+
+    fn get_registry(&self) -> &ProviderRegistry {
+        &self.registry
     }
 }
 
@@ -232,6 +243,17 @@ impl AdminHandler {
                     "linear" => {
                         info!("[SYNC_PROVIDER] Calling sync_linear");
                         core.sync_linear(since_days, mode).await
+                    },
+                    // New extensible providers via registry
+                    "notion" | "atlassian" | "jira" | "confluence" => {
+                        let provider_name = if provider == "jira" || provider == "confluence" {
+                            "atlassian"
+                        } else {
+                            provider
+                        };
+                        info!("[SYNC_PROVIDER] Calling sync_via_registry for {}", provider_name);
+                        let registry = self.state.get_registry();
+                        core.sync_via_registry(registry, provider_name, since_days, mode).await
                     },
                     _ => {
                         info!("[SYNC_PROVIDER] Unknown provider: {}", provider);
