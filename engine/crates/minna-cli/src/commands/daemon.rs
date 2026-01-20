@@ -76,10 +76,26 @@ async fn start_internal(show_success: bool) -> Result<()> {
     // Find the daemon binary
     let daemon_path = find_daemon_binary()?;
 
-    // Start daemon in background
+    // Start daemon in background with output redirected to log file
     let spinner = ui::spinner("Starting daemon...");
 
-    let child = Command::new(&daemon_path).spawn()?;
+    // Ensure log directory exists
+    let log_file_path = get_log_file();
+    if let Some(parent) = log_file_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Open log file for daemon output
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file_path)?;
+    let log_file_err = log_file.try_clone()?;
+
+    let child = Command::new(&daemon_path)
+        .stdout(std::process::Stdio::from(log_file))
+        .stderr(std::process::Stdio::from(log_file_err))
+        .spawn()?;
 
     // Write PID file
     if let Some(parent) = pid_file.parent() {

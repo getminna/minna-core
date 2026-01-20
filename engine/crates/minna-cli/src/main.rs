@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 mod admin_client;
 mod commands;
 mod sources;
+mod tui;
 mod ui;
 
 #[derive(Parser)]
@@ -12,7 +13,7 @@ mod ui;
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -23,6 +24,10 @@ enum Commands {
         /// If omitted, shows interactive picker.
         #[arg(value_name = "SOURCES")]
         sources: Vec<String>,
+
+        /// Use mock data for UI testing (no real API calls)
+        #[arg(long, hide = true)]
+        ui_test: bool,
     },
 
     /// Show sources, sync progress, and daemon health
@@ -30,6 +35,10 @@ enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Use mock data for UI testing (no real API calls)
+        #[arg(long, hide = true)]
+        ui_test: bool,
     },
 
     /// Configure MCP for your AI tool
@@ -38,6 +47,10 @@ enum Commands {
         /// If omitted, auto-detects installed tools.
         #[arg(value_name = "TOOL")]
         tool: Option<String>,
+
+        /// Use mock data for UI testing (no real API calls)
+        #[arg(long, hide = true)]
+        ui_test: bool,
     },
 
     /// Manage the background daemon
@@ -86,8 +99,9 @@ enum DaemonCommand {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing for debug logs (hidden by default)
+    // Initialize tracing - send to stderr only
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
                 .add_directive(tracing::Level::WARN.into()),
@@ -97,16 +111,35 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Add { sources } => commands::add::run(sources).await,
-        Commands::Status { json } => commands::status::run(json).await,
-        Commands::Setup { tool } => commands::setup::run(tool).await,
-        Commands::Daemon { command } => match command {
+        None => tui::welcome::run().await,
+        Some(Commands::Add { sources, ui_test }) => {
+            if ui_test {
+                tui::add::run_test(sources).await
+            } else {
+                commands::add::run(sources).await
+            }
+        }
+        Some(Commands::Status { json, ui_test }) => {
+            if ui_test {
+                tui::status::run_test().await
+            } else {
+                commands::status::run(json).await
+            }
+        }
+        Some(Commands::Setup { tool, ui_test }) => {
+            if ui_test {
+                tui::setup::run_test(tool).await
+            } else {
+                commands::setup::run(tool).await
+            }
+        }
+        Some(Commands::Daemon { command }) => match command {
             DaemonCommand::Status => commands::daemon::status().await,
             DaemonCommand::Start => commands::daemon::start().await,
             DaemonCommand::Restart => commands::daemon::restart().await,
             DaemonCommand::Logs { lines, follow } => commands::daemon::logs(lines, follow).await,
         },
-        Commands::Remove { source } => commands::remove::run(&source).await,
-        Commands::Sync { sources, all } => commands::sync::run(sources, all).await,
+        Some(Commands::Remove { source }) => commands::remove::run(&source).await,
+        Some(Commands::Sync { sources, all }) => commands::sync::run(sources, all).await,
     }
 }

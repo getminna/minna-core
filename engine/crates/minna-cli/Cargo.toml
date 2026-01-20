@@ -28,3 +28,5 @@ open.workspace = true
 tiny_http.workspace = true
 directories.workspace = true
 dirs = "5"
+ratatui.workspace = true
+crossterm.workspace = true
