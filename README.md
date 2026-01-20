@@ -14,7 +14,7 @@ Your AI's memory. Local-first. Zero config.
 
 ```bash
 brew install getminna/tap/minna-core
-minna add linear
+minna add slack linear github
 ```
 
 That's it. Your AI can now remember your work.
