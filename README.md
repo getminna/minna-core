@@ -23,9 +23,11 @@ That's it. Your AI can now remember your work.
 
 ## What is Minna?
 
-Minna is a local context engine that connects your work tools to your AI.
+Minna is the persistent memory layer for your AI agents.
 
-You don't query Minna directly. Your AI does. When you ask Claude or Cursor *"what's the status of Project Atlas?"*, the agent calls Minna, retrieves the relevant context from Linear/Slack/GitHub, and gives you the answer.
+Standard MCP Servers: Live, stateless lookups. The AI has to know exactly what to ask for.
+
+Minna: Proactive, stateful indexing. The AI just asks a question, and Minna finds the relevant needle in the haystack of your Slack history and Linear tickets.
 
 **Before:**
 ```
