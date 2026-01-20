@@ -94,22 +94,22 @@ Connects all three in sequence.
 
 ### What Happens
 
-For sources like Slack and Linear, a browser opens—click Approve and you're done.
-
-For sources that require credentials (Atlassian, Google), Minna gives you step-by-step instructions.
+Each source uses a personal token you create. Minna walks you through getting it.
 
 ```
 $ minna add linear
 
-? How would you like to connect Linear?
-  → Open browser (recommended)
-    Paste a Personal Access Token
+  To connect Linear, you'll need an API key.
 
-Opening browser...
+  1. Go to: https://linear.app/settings/api
+  2. Create a new Personal API Key
+  3. Copy the key
 
-✔ Linear connected.
+? Paste your Linear API key: ████████████████
 
-⚡ Sprint Sync...  ████████████████████  142 artifacts
+✔ Connected to Linear (Acme Corp)
+
+⚡ Sprint Sync...  ████████████████████  142 issues
 
 💤 Deep sync running in background (90 days of history).
    Run `minna status` to check progress.
@@ -178,18 +178,16 @@ Paste it. Watch your AI remember.
 
 ## Supported Sources
 
-|Source                     |Auth Method               |
-|---------------------------|--------------------------|
-|Slack                      |Browser (OAuth)           |
-|Linear                     |Browser (OAuth)           |
-|GitHub                     |Browser (OAuth) or PAT    |
-|Notion                     |Browser (OAuth)           |
-|Atlassian (Jira/Confluence)|Your OAuth App credentials|
-|Google Drive               |Your OAuth App credentials|
+|Source  |Auth Method                           |
+|--------|--------------------------------------|
+|Slack   |User OAuth Token (`xoxp-...`)         |
+|Linear  |Personal API Key                      |
+|GitHub  |Fine-grained PAT                      |
+|Notion  |Internal Integration Token            |
 
 Each source syncs via async [Tokio](https://tokio.rs/) workers. Backfill 90 days in minutes, not hours.
 
-More coming. [Request a source →](https://github.com/minna-ai/minna/issues)
+More coming (Atlassian, Google Drive). [Request a source →](https://github.com/minna-ai/minna/issues)
 
 -----
 
