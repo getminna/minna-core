@@ -1,9 +1,10 @@
 # **Minna Engineering Blueprint: Gravity Well Extension (v22.0)**
 
 **Code Name:** The Gravity Well
-**Status:** DRAFT — Pending Review
+**Status:** APPROVED
 **Extends:** Blueprint v21.0 (The Context Engine)
 **Author:** Claude
+**Reviewed By:** CTO
 **Date:** January 21, 2026
 
 ---
@@ -70,7 +71,8 @@ This extension adds a **relationship graph** to Minna, enabling proximity-aware 
 |-----------|----------|----------------|
 | `minna-graph` | `engine/crates/minna-graph/` | Graph storage, traversal, ring calculation |
 | `EdgeExtractor` | Per-provider in `minna-core/providers/` | Structured relationship extraction |
-| `RingEngine` | `minna-graph/src/rings.rs` | BFS ring assignment, caching |
+| `LocalGitExtractor` | `minna-core/src/extractors/git.rs` | Offline git history extraction |
+| `RingEngine` | `minna-graph/src/rings.rs` | BFS ring assignment with temporal decay |
 | `GravityScheduler` | `minna-core/src/scheduler.rs` | Ring-aware sync prioritization |
 
 ---
@@ -89,6 +91,8 @@ pub enum NodeType {
     Message,    // Slack message, Discord message
     PullRequest,// GitHub PR
     Thread,     // Slack thread, email thread
+    Commit,     // Git commit (local)
+    File,       // Source file (local git)
 }
 ```
 
@@ -115,6 +119,13 @@ pub enum Relation {
     Blocks,           // Issue blocks Issue
     References,       // Document references Document
     ThreadOf,         // Message is reply in Thread
+
+    // Local Git
+    EditedFile,       // User edited File (via commit)
+    CommittedTo,      // Commit belongs to Project/Repo
+
+    // LSP (Future: Phase 2)
+    Imports,          // File imports/references another File
 }
 ```
 
@@ -143,6 +154,7 @@ CREATE TABLE graph_edges (
     relation TEXT NOT NULL,           -- "assigned_to", "mentioned_in", etc.
     provider TEXT NOT NULL,           -- Source provider
     observed_at TIMESTAMP NOT NULL,   -- When this edge was observed
+    weight REAL NOT NULL DEFAULT 1.0, -- Edge weight (decays over time)
     metadata JSON,                    -- Optional: message_id, context
 
     UNIQUE(from_node, to_node, relation, provider)
@@ -430,6 +442,121 @@ lazy_static! {
 }
 ```
 
+#### **Local Git (Offline Extractor)**
+
+The `LocalGitExtractor` scans `.git` folders of projects added to Minna. This is the **source of truth** for code collaboration—it works offline and requires no API calls.
+
+```rust
+pub struct LocalGitExtractor {
+    repo_path: PathBuf,
+}
+
+impl LocalGitExtractor {
+    /// Extract collaboration edges from git log
+    pub fn extract_edges(&self) -> Result<Vec<ExtractedEdge>> {
+        let mut edges = vec![];
+        let repo = git2::Repository::open(&self.repo_path)?;
+
+        // Walk recent commits (last 90 days)
+        let mut revwalk = repo.revwalk()?;
+        revwalk.push_head()?;
+
+        let cutoff = Utc::now() - Duration::days(90);
+
+        for oid in revwalk {
+            let commit = repo.find_commit(oid?)?;
+            let commit_time = DateTime::from_timestamp(commit.time().seconds(), 0)
+                .unwrap_or(Utc::now());
+
+            if commit_time < cutoff {
+                break; // Stop at 90-day boundary
+            }
+
+            let author_email = commit.author().email().unwrap_or("unknown");
+            let author_name = commit.author().name().unwrap_or("Unknown");
+
+            // Author → Commit
+            edges.push(ExtractedEdge {
+                from: NodeRef::user("git", author_email),
+                to: NodeRef::commit("git", &commit.id().to_string()),
+                relation: Relation::AuthorOf,
+                observed_at: commit_time,
+                metadata: Some(json!({ "name": author_name })),
+            });
+
+            // Commit → Files (diff with parent)
+            if let Some(parent) = commit.parents().next() {
+                let diff = repo.diff_tree_to_tree(
+                    Some(&parent.tree()?),
+                    Some(&commit.tree()?),
+                    None,
+                )?;
+
+                for delta in diff.deltas() {
+                    if let Some(path) = delta.new_file().path() {
+                        let file_path = path.to_string_lossy().to_string();
+
+                        // Author → File (edited)
+                        edges.push(ExtractedEdge {
+                            from: NodeRef::user("git", author_email),
+                            to: NodeRef::file("git", &file_path),
+                            relation: Relation::EditedFile,
+                            observed_at: commit_time,
+                            metadata: None,
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(edges)
+    }
+
+    /// Key insight: If I'm editing main.rs and Sarah last edited main.rs,
+    /// Sarah is immediately Ring 1
+    pub fn get_file_collaborators(&self, file_path: &str) -> Result<Vec<Collaborator>> {
+        let repo = git2::Repository::open(&self.repo_path)?;
+        let mut collaborators = HashMap::new();
+
+        // git log --follow -- <file_path>
+        let mut revwalk = repo.revwalk()?;
+        revwalk.push_head()?;
+
+        for oid in revwalk.take(100) { // Last 100 commits touching this file
+            let commit = repo.find_commit(oid?)?;
+
+            // Check if this commit touched the file
+            if commit_touches_file(&repo, &commit, file_path)? {
+                let email = commit.author().email().unwrap_or("unknown").to_string();
+                let entry = collaborators.entry(email.clone()).or_insert(Collaborator {
+                    email,
+                    name: commit.author().name().unwrap_or("Unknown").to_string(),
+                    commit_count: 0,
+                    last_commit: DateTime::from_timestamp(commit.time().seconds(), 0)
+                        .unwrap_or(Utc::now()),
+                });
+                entry.commit_count += 1;
+            }
+        }
+
+        Ok(collaborators.into_values().collect())
+    }
+}
+
+#[derive(Debug)]
+pub struct Collaborator {
+    pub email: String,
+    pub name: String,
+    pub commit_count: usize,
+    pub last_commit: DateTime<Utc>,
+}
+```
+
+**Why LocalGit matters:**
+- **Offline**: Works without network, no API rate limits
+- **Source of truth**: Git history is immutable fact
+- **Immediate Ring 1**: If you're editing `main.rs` and Sarah last touched it, she's your collaborator *right now*
+
 ### **5.3 Extraction Summary by Provider**
 
 | Provider | Structured Fields | @Mention Extraction |
@@ -441,6 +568,7 @@ lazy_static! {
 | **Jira** | assignee, reporter, project, issuelinks | `[~accountId]` regex |
 | **Confluence** | author, space, parent | API returns mentions |
 | **Google Drive** | owner, sharedWith[] | N/A (no @mentions) |
+| **Local Git** | author, committer, files changed | N/A (offline, no API) |
 
 ---
 
@@ -459,59 +587,104 @@ lazy_static! {
 **Ring 1** is direct: people assigned to your issues, people who @mention you, your projects.
 **Ring 2** is one hop away: people assigned to issues in your projects, members of your channels.
 
-### **6.2 Ring Calculation**
+### **6.2 Ring Calculation with Temporal Decay**
+
+Pure graph distance is insufficient. A collaborator from 3 years ago shouldn't be Ring 1 just because they're 1 hop away. We add **temporal decay** to edge weights.
+
+**The Half-Life Model:**
+```
+EffectiveDistance = GraphDistance + (DaysSinceLastInteraction × DecayFactor)
+```
+
+Edges older than 90 days become **"Ghost Edges"**—traversable but with high resistance. This naturally pushes stale relationships into Ring 2/Beyond.
 
 ```rust
 pub struct RingEngine {
     graph: Graph,
     user_node: NodeId,
+    decay_factor: f32,        // Default: 0.01
+    ghost_threshold_days: i64, // Default: 90
 }
 
 impl RingEngine {
+    /// Calculate edge weight with temporal decay
+    fn edge_weight(&self, edge: &Edge) -> f32 {
+        let days_since = (Utc::now() - edge.observed_at).num_days() as f32;
+
+        if days_since > self.ghost_threshold_days as f32 {
+            // Ghost edge: high resistance (effectively adds 1+ to distance)
+            0.1
+        } else {
+            // Fresh edge: full weight with gradual decay
+            // Weight decays from 1.0 to ~0.4 over 90 days
+            let decay = (-self.decay_factor * days_since).exp();
+            edge.weight * decay
+        }
+    }
+
+    /// Compute effective distance considering edge weights
+    fn effective_distance(&self, path: &[Edge]) -> f32 {
+        path.iter()
+            .map(|edge| 1.0 / self.edge_weight(edge)) // Lower weight = higher cost
+            .sum()
+    }
+
     pub fn compute_rings(&self) -> HashMap<NodeId, RingAssignment> {
         let mut assignments = HashMap::new();
         let mut visited = HashSet::new();
         let mut queue = VecDeque::new();
 
-        // Start BFS from user
-        queue.push_back((self.user_node.clone(), 0, vec![self.user_node.clone()]));
+        // Start BFS from user (using weighted Dijkstra-style traversal)
+        queue.push_back((self.user_node.clone(), 0.0, vec![]));
 
-        while let Some((node, distance, path)) = queue.pop_front() {
+        while let Some((node, effective_dist, path)) = queue.pop_front() {
             if visited.contains(&node) {
                 continue;
             }
             visited.insert(node.clone());
 
-            let ring = match distance {
-                0 => Ring::Core,
-                1 => Ring::One,
-                2 => Ring::Two,
+            // Ring assignment based on effective distance (not raw hops)
+            let ring = match effective_dist {
+                d if d < 0.01 => Ring::Core,
+                d if d < 1.5 => Ring::One,    // Fresh 1-hop connections
+                d if d < 3.0 => Ring::Two,    // 2 hops or decayed 1-hop
                 _ => Ring::Beyond,
             };
 
             assignments.insert(node.clone(), RingAssignment {
                 ring,
-                distance,
-                path: path.clone(),
+                distance: path.len() as i32,
+                effective_distance: effective_dist,
+                path: path.iter().map(|e| e.to.clone()).collect(),
                 computed_at: Utc::now(),
             });
 
-            // Only traverse up to distance 3 (Beyond)
-            if distance < 3 {
+            // Hard cap at depth 3 (CTO decision)
+            if path.len() < 3 {
                 for edge in self.graph.edges_from(&node) {
                     if !visited.contains(&edge.to) {
+                        let edge_cost = 1.0 / self.edge_weight(&edge);
                         let mut new_path = path.clone();
-                        new_path.push(edge.to.clone());
-                        queue.push_back((edge.to.clone(), distance + 1, new_path));
+                        new_path.push(edge.clone());
+                        queue.push_back((
+                            edge.to.clone(),
+                            effective_dist + edge_cost,
+                            new_path,
+                        ));
                     }
                 }
 
-                // Also traverse reverse edges (bidirectional)
+                // Bidirectional traversal
                 for edge in self.graph.edges_to(&node) {
                     if !visited.contains(&edge.from) {
+                        let edge_cost = 1.0 / self.edge_weight(&edge);
                         let mut new_path = path.clone();
-                        new_path.push(edge.from.clone());
-                        queue.push_back((edge.from.clone(), distance + 1, new_path));
+                        new_path.push(edge.clone());
+                        queue.push_back((
+                            edge.from.clone(),
+                            effective_dist + edge_cost,
+                            new_path,
+                        ));
                     }
                 }
             }
@@ -527,7 +700,26 @@ impl RingEngine {
             .unwrap_or(Ring::Beyond)
     }
 }
+
+/// Updated ring assignment with effective distance
+pub struct RingAssignment {
+    pub ring: Ring,
+    pub distance: i32,            // Raw graph hops
+    pub effective_distance: f32,  // Weighted distance (accounts for decay)
+    pub path: Vec<NodeId>,
+    pub computed_at: DateTime<Utc>,
+}
 ```
+
+**Example: Temporal Decay in Action**
+
+| Collaborator | Raw Distance | Last Interaction | Effective Distance | Ring |
+|--------------|--------------|------------------|-------------------|------|
+| Sarah | 1 hop | 2 days ago | 1.02 | Ring 1 |
+| Bob | 1 hop | 3 years ago | 4.5 (ghost) | Beyond |
+| Jordan | 2 hops | 1 week ago | 2.1 | Ring 2 |
+
+Bob worked closely with you 3 years ago (1 hop in the graph), but hasn't interacted since. With temporal decay, his effective distance pushes him to Beyond, while Sarah (who you worked with yesterday) stays in Ring 1.
 
 ### **6.3 Ring Cache Invalidation**
 
@@ -773,24 +965,26 @@ Last sync: 3 hours ago
 ### **Phase 1: Graph Foundation**
 *Goal: Graph exists and is accurate*
 
-- [ ] Add `minna-graph` crate with schema
+- [ ] Add `minna-graph` crate with schema (including `weight` column)
 - [ ] Implement `EdgeExtractor` for Slack, Linear, GitHub
+- [ ] Implement `LocalGitExtractor` for offline git history
 - [ ] Add edge emission to sync pipeline
 - [ ] Create `graph_nodes` and `graph_edges` tables
 - [ ] Add `minna gravity status` CLI command
-- [ ] Add basic identity resolution (email-based)
+- [ ] Add basic identity resolution (email-based + manual linking)
 
 **Validation:** Graph accurately reflects structured relationships. Spot-check 10 random edges.
 
 ### **Phase 2: Ring Assignment**
-*Goal: Rings computed correctly from graph distance*
+*Goal: Rings computed correctly from graph distance with temporal decay*
 
-- [ ] Implement `RingEngine` with BFS traversal
-- [ ] Add `ring_assignments` table with caching
+- [ ] Implement `RingEngine` with weighted BFS traversal
+- [ ] Add temporal decay function (half-life model)
+- [ ] Add `ring_assignments` table with caching (include `effective_distance`)
 - [ ] Add `minna gravity show` and `minna gravity explain`
 - [ ] Add ring invalidation triggers
 
-**Validation:** Your direct collaborators are Ring 1. One-hop-away are Ring 2.
+**Validation:** Fresh collaborators are Ring 1. Stale collaborators (90+ days) decay toward Beyond.
 
 ### **Phase 3: Ring-Aware Search**
 *Goal: Search results improve for Ring 1 content*
@@ -828,23 +1022,112 @@ These are explicitly **out of scope** for initial implementation but designed-fo
 
 | Enhancement | Description | When to Add |
 |-------------|-------------|-------------|
-| **Weighted scoring** | Edge weights based on interaction type | After validating basic rings work |
-| **Decay functions** | Edges lose weight over time | After collecting timestamp data |
 | **Query learning** | Auto-promote frequently queried Beyond objects | After collecting query logs |
 | **Project focus mode** | Temporarily elevate all project members | User request |
 | **SLM extraction** | Extract relationships from prose | If structured extraction proves insufficient |
+| **LSP Integration** | Code graph from Language Server Protocol | Phase 2 (Desktop App) |
+
+### **LSP Integration (Phase 2)**
+
+In the Desktop App phase, we can listen to the Language Server Protocol to extract **code structure as graph edges**.
+
+**The Structure:** Code has an inherent graph structure (imports, references, function calls).
+
+**The Edge:** `File A → Imports → File B`
+
+**The Logic:** If File A is in Ring 1 (you're editing it), then File B (which it imports) automatically promotes to Ring 1.
+
+```rust
+pub struct LspExtractor {
+    // Listen to LSP didOpen, didChange events
+}
+
+impl LspExtractor {
+    pub fn on_file_open(&self, file_path: &str) -> Vec<ExtractedEdge> {
+        let mut edges = vec![];
+
+        // Query LSP for imports/references
+        let references = self.lsp_client.get_references(file_path);
+
+        for ref_path in references {
+            edges.push(ExtractedEdge {
+                from: NodeRef::file("lsp", file_path),
+                to: NodeRef::file("lsp", &ref_path),
+                relation: Relation::Imports,
+                observed_at: Utc::now(),
+                metadata: None,
+            });
+        }
+
+        edges
+    }
+}
+```
+
+**Benefit:** This prevents **"Hallucination by Omission."** Minna will know about dependency files before the AI agent even asks for them. If you're editing `auth.rs`, Minna already knows `crypto.rs` and `user.rs` are relevant.
 
 ---
 
-## **12. Open Questions**
+## **12. Open Questions (Resolved)**
 
-1. **Identity resolution complexity**: Email-based linking is simple but incomplete. Some users have different emails across providers. How much effort to invest here?
+### **Q1: Identity Resolution (Emails vs Usernames)**
 
-2. **Ring 2 partial sync**: Not all providers support field-level filtering. For those that don't, do we skip Ring 2 or do full sync less frequently?
+**Decision:** Do not over-engineer an automatic linker. It is fragile.
 
-3. **Graph size limits**: At what point does BFS become too slow? Do we need to cap traversal depth or node count?
+**Solution:** Use a **"Probabilistic Suggestion, Deterministic Action"** model:
+- Minna guesses: "Is `alice@gmail.com` the same as `Alice (Slack)`?" based on string similarity
+- Minna asks the user in the CLI: `minna identity link suggest`
+- We store the manual link. **User sovereignty means user truth.**
 
-4. **Multi-user future**: This design is single-user (your gravity well). If we add team workspaces later, do we need shared graphs or per-user graphs with overlap?
+```bash
+$ minna identity link suggest
+
+Suggested identity links:
+  • alice@gmail.com ↔ Alice (Slack U123) — 92% confidence
+  • bob@company.com ↔ Bob Smith (Linear) — 87% confidence
+
+[Accept All] [Review Each] [Dismiss]
+```
+
+### **Q2: Ring 2 Partial Sync (Field-Level Filtering)**
+
+**Decision:** For providers that don't support partial sync, use **"Head-Only Sync."**
+
+**Solution:** Don't fetch the full body. Fetch the list (metadata only). If `updated_at` changed, mark the object as "Stale" but don't download the body until the user explicitly searches for it. This keeps the index light.
+
+```rust
+enum SyncDepth {
+    Full,       // All fields, all content
+    HeadOnly,   // Metadata: id, updated_at, title, status
+    OnDemand,   // Not synced; fetch when queried
+}
+
+// For providers without partial sync support:
+// Ring 2 gets HeadOnly, not skipped
+```
+
+### **Q3: Graph Size Limits (BFS Performance)**
+
+**Decision:** Hard cap the `RingEngine` traversal at **Depth 3**.
+
+**Rationale:** Anything beyond 3 hops is effectively noise ("The Butterfly Effect"). We don't need to know your manager's cousin's project.
+
+```rust
+// In RingEngine::compute_rings()
+if path.len() < 3 {  // Hard cap
+    // Continue traversal
+} else {
+    // Stop: Beyond ring, no further traversal
+}
+```
+
+SQLite `WITH RECURSIVE` queries can represent graphs, but application-layer BFS (Rust) is faster for complex logic like weighted decay.
+
+### **Q4: Multi-user Future**
+
+**Status:** Deferred to Phase 8 (Team Workspaces).
+
+For now, this design is single-user (your gravity well). Future team workspaces will likely use per-user graphs with shared edges for team-visible content.
 
 ---
 
