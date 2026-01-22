@@ -5,12 +5,12 @@
 //!
 //! - **Schema**: Node and relation types for the collaboration graph
 //! - **Storage**: SQLite-backed persistence for nodes and edges
-//! - **Ring Engine**: (Coming soon) BFS-based ring calculation with temporal decay
+//! - **Ring Engine**: BFS-based ring calculation with temporal decay
 //!
 //! # Example
 //!
 //! ```ignore
-//! use minna_graph::{GraphStore, NodeRef, ExtractedEdge, Relation};
+//! use minna_graph::{GraphStore, NodeRef, ExtractedEdge, Relation, RingEngine};
 //! use chrono::Utc;
 //!
 //! // Create graph store
@@ -21,12 +21,18 @@
 //! let message = NodeRef::message("slack", "1234567890.123456");
 //! let edge = ExtractedEdge::new(user, message, Relation::AuthorOf, Utc::now());
 //! store.upsert_edge(&edge).await?;
+//!
+//! // Calculate rings from user identity
+//! let engine = RingEngine::new();
+//! engine.recalculate_rings(&store, "user:slack:U123").await?;
 //! ```
 
+pub mod ring_engine;
 pub mod schema;
 pub mod storage;
 
 // Re-export commonly used types
+pub use ring_engine::{RingConfig, RingEngine, RecalculationResult};
 pub use schema::{
     ExtractedEdge, GraphEdge, GraphNode, NodeRef, NodeType, Relation, Ring, RingAssignment,
 };
