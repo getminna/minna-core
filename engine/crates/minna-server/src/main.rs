@@ -534,11 +534,12 @@ async fn main() -> Result<()> {
                 sleep(Duration::from_millis(100)).await;
             }
             if let Some(core) = state.get_core().await {
-                let ctx = McpContext::new(
+                let ctx = McpContext::with_graph(
                     core.ingest.clone(),
                     core.vector.clone(),
                     core.auth.clone(),
                     core.embedder.clone(),
+                    core.graph.clone(),
                 );
                 let handler = Arc::new(McpHandler::new(ctx));
                 if let Err(err) = handle_mcp_client(stream, handler).await {

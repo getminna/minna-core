@@ -28,11 +28,13 @@
 //! ```
 
 pub mod extractors;
+pub mod identity;
 pub mod ring_engine;
 pub mod schema;
 pub mod storage;
 
 // Re-export commonly used types
+pub use identity::{IdentityMatch, IdentityService, MatchType, ProviderUser};
 pub use ring_engine::{RingConfig, RingEngine, RecalculationResult};
 pub use schema::{
     ExtractedEdge, GraphEdge, GraphNode, NodeRef, NodeType, Relation, Ring, RingAssignment,
