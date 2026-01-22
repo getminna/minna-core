@@ -1,67 +1,48 @@
-# Gravity Well Implementation Plan (Revised)
+# Gravity Well Implementation Plan (Final)
 
 **Project:** Minna Gravity Well (Blueprint v22)
-**Status:** VALIDATED AGAINST CODEBASE
+**Status:** APPROVED
 **Last Updated:** January 21, 2026
+**Decision:** Migrate Linear first → if smooth, migrate all connectors
 
 ---
 
-## Codebase Reality Check
+## Strategy: Linear-First Migration
 
-### Current Architecture
+Instead of adding hooks to legacy code, we migrate providers to the trait-based system with edge extraction built-in.
 
-```
-engine/crates/
-├── minna-core/          # Sync engine + legacy provider methods
-│   └── src/
-│       ├── lib.rs       # Core struct with sync_slack(), sync_github(), sync_linear()
-│       └── providers/   # NEW trait-based system (only Notion, Atlassian)
-├── minna-ingest/        # Document storage (SQLite + FTS5)
-├── minna-vector/        # Embeddings (sqlite-vec)
-├── minna-mcp/           # MCP protocol
-├── minna-server/        # Daemon
-├── minna-cli/           # CLI (commands: add, sync, status, daemon, setup, remove)
-└── minna-auth-bridge/   # Keychain
-```
+**Sequence:**
+1. **Linear** (smallest, ~130 lines) → proof of concept
+2. **If successful:** Slack (~617 lines) → GitHub (~145 lines)
+3. **Defer:** Google (low graph value, complex)
 
-### Provider Status
-
-| Provider | Current Implementation | Edge Extraction Strategy |
-|----------|----------------------|-------------------------|
-| **Slack** | Legacy: `Core::sync_slack()` ~600 lines in lib.rs | Add extraction hooks to existing method |
-| **Linear** | Legacy: `Core::sync_linear()` ~400 lines in lib.rs | Add extraction hooks to existing method |
-| **GitHub** | Legacy: `Core::sync_github()` ~200 lines in lib.rs | Add extraction hooks to existing method |
-| **Google** | Legacy: `Core::sync_google()` | Defer (low graph value) |
-| **Notion** | New: `SyncProvider` trait | Implement `extract_edges()` in trait |
-| **Atlassian** | New: `SyncProvider` trait | Implement `extract_edges()` in trait |
-| **LocalGit** | Does not exist | New standalone extractor |
-
-### Key Decision: Don't Migrate Legacy Providers
-
-Migrating `sync_slack()`, `sync_linear()`, `sync_github()` to the trait system is a separate project. For Gravity Well, we:
-
-1. Add edge extraction hooks to existing legacy methods
-2. Implement trait-based extraction for Notion/Atlassian
-3. Create new LocalGit extractor
+**Why this order:**
+- Linear is smallest, cleanest API (GraphQL)
+- High graph signal (assignees, projects, issue links)
+- If migration pattern works, apply to others
+- Fail fast if trait system has issues
 
 ---
 
 ## Revised Sprint Plan
 
-| Sprint | Duration | Focus | Risk |
-|--------|----------|-------|------|
-| **Sprint 1** | Weeks 1-2 | Graph schema in minna-ingest + minna-graph crate | Low |
-| **Sprint 2** | Weeks 3-4 | Edge extraction for legacy providers + LocalGit | Medium |
-| **Sprint 3** | Weeks 5-6 | RingEngine with temporal decay | Medium |
-| **Sprint 4** | Weeks 7-8 | CLI + Search integration | Low |
-| **Sprint 5** | Weeks 9-10 | Sync scheduler | Medium |
-| **Hardening** | Weeks 11-12 | Polish, testing, docs | Low |
+| Sprint | Duration | Focus | Providers |
+|--------|----------|-------|-----------|
+| **Sprint 1** | Weeks 1-2 | Graph schema + minna-graph crate | — |
+| **Sprint 2** | Weeks 3-4 | Linear migration + edge extraction | Linear |
+| **Sprint 3** | Weeks 5-6 | Slack + GitHub migration | Slack, GitHub |
+| **Sprint 4** | Weeks 7-8 | RingEngine + LocalGit | LocalGit |
+| **Sprint 5** | Weeks 9-10 | CLI + Search integration | — |
+| **Sprint 6** | Weeks 11-12 | Sync scheduler | — |
+| **Hardening** | Weeks 13-14 | Polish, testing, docs | — |
+
+**Timeline increased by 2 weeks** due to full migration approach. Worth it for clean architecture.
 
 ---
 
 ## Sprint 1: Graph Foundation
 
-**Goal:** Graph tables exist in minna-ingest, minna-graph crate created.
+**Goal:** Graph tables exist, minna-graph crate created, ready for extraction.
 
 ### File Changes
 
@@ -91,16 +72,19 @@ engine/
 | 1.4 | Add `graph_nodes` table to minna-ingest | `minna-ingest/src/lib.rs` | 3h |
 | 1.5 | Add `graph_edges` table (with `weight`) | `minna-ingest/src/lib.rs` | 3h |
 | 1.6 | Add `user_identities` tables | `minna-ingest/src/lib.rs` | 2h |
-| 1.7 | Implement `GraphStore` with CRUD | `minna-graph/src/storage.rs` | 6h |
-| 1.8 | Implement `edges_from()`, `edges_to()` | `minna-graph/src/storage.rs` | 4h |
-| 1.9 | Define `ExtractedEdge`, `NodeRef` | `minna-graph/src/schema.rs` | 2h |
-| 1.10 | Unit tests for graph operations | `minna-graph/src/lib.rs` | 6h |
+| 1.7 | Add `ring_assignments` table | `minna-ingest/src/lib.rs` | 2h |
+| 1.8 | Implement `GraphStore` with CRUD | `minna-graph/src/storage.rs` | 6h |
+| 1.9 | Implement `edges_from()`, `edges_to()` | `minna-graph/src/storage.rs` | 4h |
+| 1.10 | Define `ExtractedEdge`, `NodeRef` | `minna-graph/src/schema.rs` | 2h |
+| 1.11 | Add `extract_edges()` to `SyncProvider` trait | `minna-core/src/providers/mod.rs` | 2h |
+| 1.12 | Unit tests for graph operations | `minna-graph/tests/` | 6h |
 
 ### Schema Addition to minna-ingest
 
 ```rust
 // In minna-ingest/src/lib.rs, add to init_schema():
 
+// Graph nodes
 sqlx::query(
     "CREATE TABLE IF NOT EXISTS graph_nodes (
         id TEXT PRIMARY KEY,
@@ -115,6 +99,7 @@ sqlx::query(
     )"
 ).execute(&self.pool).await?;
 
+// Graph edges
 sqlx::query(
     "CREATE TABLE IF NOT EXISTS graph_edges (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -129,9 +114,12 @@ sqlx::query(
     )"
 ).execute(&self.pool).await?;
 
+// Indexes
 sqlx::query("CREATE INDEX IF NOT EXISTS idx_edges_from ON graph_edges(from_node)").execute(&self.pool).await?;
 sqlx::query("CREATE INDEX IF NOT EXISTS idx_edges_to ON graph_edges(to_node)").execute(&self.pool).await?;
+sqlx::query("CREATE INDEX IF NOT EXISTS idx_edges_observed ON graph_edges(observed_at)").execute(&self.pool).await?;
 
+// Identity linking
 sqlx::query(
     "CREATE TABLE IF NOT EXISTS user_identities (
         canonical_id TEXT PRIMARY KEY,
@@ -149,6 +137,7 @@ sqlx::query(
     )"
 ).execute(&self.pool).await?;
 
+// Ring cache
 sqlx::query(
     "CREATE TABLE IF NOT EXISTS ring_assignments (
         node_id TEXT PRIMARY KEY REFERENCES graph_nodes(id),
@@ -161,6 +150,32 @@ sqlx::query(
 ).execute(&self.pool).await?;
 ```
 
+### SyncProvider Trait Extension
+
+```rust
+// In minna-core/src/providers/mod.rs
+
+#[async_trait]
+pub trait SyncProvider: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn display_name(&self) -> &'static str;
+
+    async fn sync(
+        &self,
+        ctx: &SyncContext<'_>,
+        since_days: Option<i64>,
+        mode: Option<&str>,
+    ) -> Result<SyncSummary>;
+
+    async fn discover(&self, ctx: &SyncContext<'_>) -> Result<serde_json::Value>;
+
+    // NEW: Edge extraction (default no-op for backward compatibility)
+    fn extract_edges(&self, _raw: &serde_json::Value) -> Vec<ExtractedEdge> {
+        vec![]
+    }
+}
+```
+
 ### Testing Criteria
 
 ```
@@ -170,111 +185,167 @@ sqlx::query(
 □ Can insert 50,000 edges in < 5s
 □ edges_from() returns correct edges
 □ UNIQUE constraint prevents duplicates
+□ SyncProvider trait compiles with new method
 ```
+
+### Definition of Done
+
+- [ ] `minna-graph` crate in workspace, compiles
+- [ ] All tables migrate cleanly
+- [ ] Unit tests pass (>80% coverage)
+- [ ] `SyncProvider` trait has `extract_edges()` method
+- [ ] Existing providers (Notion, Atlassian) still compile
 
 ---
 
-## Sprint 2: Edge Extraction
+## Sprint 2: Linear Migration
 
-**Goal:** Legacy providers emit edges, LocalGit extractor works.
+**Goal:** Migrate `sync_linear()` from legacy method to `SyncProvider` trait with edge extraction.
+
+### Pre-Sprint: Understand Linear Legacy Code
+
+```rust
+// Current: minna-core/src/lib.rs:1016-1145 (~130 lines)
+pub async fn sync_linear(&self, since_days: Option<i64>, mode: Option<&str>) -> Result<SyncSummary>
+```
 
 ### File Changes
 
 ```
 engine/crates/
-├── minna-core/
-│   └── src/
-│       ├── lib.rs                      # MODIFY: Add edge emission to sync_slack(), etc.
-│       ├── edge_extraction.rs          # NEW: Shared extraction logic
-│       └── providers/
-│           ├── mod.rs                  # MODIFY: Add extract_edges() to SyncProvider trait
-│           ├── notion.rs               # MODIFY: Implement extract_edges()
-│           └── atlassian.rs            # MODIFY: Implement extract_edges()
-├── minna-graph/
-│   └── src/
-│       └── extractors/                 # NEW: Standalone extractors
-│           ├── mod.rs
-│           └── local_git.rs            # NEW: LocalGitExtractor
+├── minna-core/src/
+│   ├── lib.rs                          # REMOVE sync_linear() method
+│   └── providers/
+│       ├── mod.rs                      # Register LinearProvider
+│       └── linear.rs                   # NEW: LinearProvider implementation
+├── minna-server/src/
+│   └── main.rs                         # Update dispatch to use registry
 ```
 
 ### Tasks
 
 | ID | Task | File | Est |
 |----|------|------|-----|
-| 2.1 | Create `edge_extraction.rs` module | `minna-core/src/edge_extraction.rs` | 4h |
-| 2.2 | Add `GraphStore` to `Core` struct | `minna-core/src/lib.rs` | 2h |
-| 2.3 | Add edge emission to `sync_slack()` | `minna-core/src/lib.rs` | 6h |
-| 2.4 | Add edge emission to `sync_linear()` | `minna-core/src/lib.rs` | 6h |
-| 2.5 | Add edge emission to `sync_github()` | `minna-core/src/lib.rs` | 4h |
-| 2.6 | Add `extract_edges()` to `SyncProvider` trait | `minna-core/src/providers/mod.rs` | 2h |
-| 2.7 | Implement for NotionProvider | `minna-core/src/providers/notion.rs` | 4h |
-| 2.8 | Implement for AtlassianProvider | `minna-core/src/providers/atlassian.rs` | 4h |
-| 2.9 | Create `LocalGitExtractor` | `minna-graph/src/extractors/local_git.rs` | 8h |
-| 2.10 | Add git2 dependency | `minna-graph/Cargo.toml` | 1h |
-| 2.11 | Integration tests with mock data | `minna-graph/tests/` | 8h |
+| 2.1 | Create `linear.rs` provider file | `minna-core/src/providers/linear.rs` | 2h |
+| 2.2 | Move Linear sync logic to `LinearProvider::sync()` | `providers/linear.rs` | 6h |
+| 2.3 | Implement `extract_edges()` for Linear | `providers/linear.rs` | 4h |
+| 2.4 | Extract: Assignee → Issue edges | `providers/linear.rs` | 2h |
+| 2.5 | Extract: Creator → Issue edges | `providers/linear.rs` | 1h |
+| 2.6 | Extract: Issue → Project edges | `providers/linear.rs` | 1h |
+| 2.7 | Extract: Issue relations (blocks, depends) | `providers/linear.rs` | 2h |
+| 2.8 | Register LinearProvider in registry | `providers/mod.rs` | 1h |
+| 2.9 | Update daemon to use registry for Linear | `minna-server/src/main.rs` | 2h |
+| 2.10 | Remove legacy `sync_linear()` from lib.rs | `minna-core/src/lib.rs` | 1h |
+| 2.11 | Add `GraphStore` to `SyncContext` | `minna-core/src/providers/mod.rs` | 2h |
+| 2.12 | Emit edges during sync | `providers/linear.rs` | 3h |
+| 2.13 | Integration tests | `minna-core/tests/linear.rs` | 6h |
+| 2.14 | Manual testing with real Linear account | Manual | 4h |
 
-### Edge Extraction Hook Pattern (Legacy Providers)
-
-```rust
-// In minna-core/src/lib.rs, inside sync_slack():
-
-// After parsing a message:
-let message_node = self.graph.upsert_node(NodeRef {
-    node_type: NodeType::Message,
-    provider: "slack",
-    external_id: &message.ts,
-    display_name: None,
-})?;
-
-let author_node = self.graph.upsert_node(NodeRef {
-    node_type: NodeType::User,
-    provider: "slack",
-    external_id: &message.user,
-    display_name: Some(&user_name),
-})?;
-
-self.graph.upsert_edge(ExtractedEdge {
-    from: author_node,
-    to: message_node,
-    relation: Relation::AuthorOf,
-    observed_at: message_timestamp,
-    provider: "slack",
-})?;
-
-// Extract @mentions
-for mention in extract_slack_mentions(&message.text) {
-    let mentioned_node = self.graph.upsert_node(NodeRef {
-        node_type: NodeType::User,
-        provider: "slack",
-        external_id: &mention,
-        display_name: None,
-    })?;
-
-    self.graph.upsert_edge(ExtractedEdge {
-        from: mentioned_node,
-        to: message_node,
-        relation: Relation::MentionedIn,
-        observed_at: message_timestamp,
-        provider: "slack",
-    })?;
-}
-```
-
-### LocalGit Integration
+### LinearProvider Implementation
 
 ```rust
-// LocalGitExtractor is standalone, called via CLI or on project add
-// minna-graph/src/extractors/local_git.rs
+// minna-core/src/providers/linear.rs
 
-impl LocalGitExtractor {
-    pub fn new(repo_path: PathBuf) -> Result<Self> { ... }
+use crate::providers::{SyncProvider, SyncContext, SyncSummary};
+use minna_graph::{ExtractedEdge, NodeRef, Relation};
 
-    pub fn extract_edges(&self) -> Result<Vec<ExtractedEdge>> {
-        // Walk commits, extract author -> file edges
+pub struct LinearProvider;
+
+#[async_trait]
+impl SyncProvider for LinearProvider {
+    fn name(&self) -> &'static str { "linear" }
+    fn display_name(&self) -> &'static str { "Linear" }
+
+    async fn sync(
+        &self,
+        ctx: &SyncContext<'_>,
+        since_days: Option<i64>,
+        mode: Option<&str>,
+    ) -> Result<SyncSummary> {
+        // Move existing sync_linear() logic here
+        let issues = self.fetch_issues(ctx, since_days).await?;
+
+        for issue in &issues {
+            // Store document (existing logic)
+            ctx.ingest.store_document(&issue.to_document()).await?;
+
+            // NEW: Extract and store edges
+            let edges = self.extract_edges(&serde_json::to_value(issue)?);
+            for edge in edges {
+                ctx.graph.upsert_edge(&edge).await?;
+            }
+        }
+
+        Ok(SyncSummary { ... })
     }
 
-    pub fn get_file_collaborators(&self, file_path: &str) -> Result<Vec<Collaborator>> {
-        // For real-time "who else touched this file" queries
+    fn extract_edges(&self, issue: &serde_json::Value) -> Vec<ExtractedEdge> {
+        let mut edges = vec![];
+        let issue_id = issue["id"].as_str().unwrap_or_default();
+        let updated_at = parse_timestamp(issue["updatedAt"].as_str());
+
+        // Assignee → Issue
+        if let Some(assignee) = issue.get("assignee").and_then(|a| a.get("id")) {
+            edges.push(ExtractedEdge {
+                from: NodeRef::user("linear", assignee.as_str().unwrap()),
+                to: NodeRef::issue("linear", issue_id),
+                relation: Relation::AssignedTo,
+                observed_at: updated_at,
+                metadata: None,
+            });
+        }
+
+        // Creator → Issue
+        if let Some(creator) = issue.get("creator").and_then(|c| c.get("id")) {
+            edges.push(ExtractedEdge {
+                from: NodeRef::user("linear", creator.as_str().unwrap()),
+                to: NodeRef::issue("linear", issue_id),
+                relation: Relation::AuthorOf,
+                observed_at: updated_at,
+                metadata: None,
+            });
+        }
+
+        // Issue → Project
+        if let Some(project) = issue.get("project").and_then(|p| p.get("id")) {
+            edges.push(ExtractedEdge {
+                from: NodeRef::issue("linear", issue_id),
+                to: NodeRef::project("linear", project.as_str().unwrap()),
+                relation: Relation::BelongsTo,
+                observed_at: updated_at,
+                metadata: None,
+            });
+        }
+
+        // Issue relations (blocks, depends_on)
+        if let Some(relations) = issue.get("relations").and_then(|r| r.as_array()) {
+            for rel in relations {
+                let rel_type = rel["type"].as_str().unwrap_or_default();
+                let related_id = rel["relatedIssue"]["id"].as_str().unwrap_or_default();
+
+                let relation = match rel_type {
+                    "blocks" => Relation::Blocks,
+                    "is-blocked-by" => continue, // Skip reverse, we store one direction
+                    "duplicate" | "related" => Relation::References,
+                    _ => continue,
+                };
+
+                edges.push(ExtractedEdge {
+                    from: NodeRef::issue("linear", issue_id),
+                    to: NodeRef::issue("linear", related_id),
+                    relation,
+                    observed_at: updated_at,
+                    metadata: None,
+                });
+            }
+        }
+
+        edges
+    }
+
+    async fn discover(&self, ctx: &SyncContext<'_>) -> Result<serde_json::Value> {
+        // Move existing discover logic
+        todo!()
     }
 }
 ```
@@ -282,231 +353,260 @@ impl LocalGitExtractor {
 ### Testing Criteria
 
 ```
-□ sync_slack() populates graph_edges table
-□ Slack @mentions create MentionedIn edges
-□ Linear issues create AssignedTo, BelongsTo edges
-□ GitHub PRs create ReviewerOf edges
-□ LocalGitExtractor extracts edges from test repo
-□ All extractors handle malformed input gracefully
+□ `minna sync linear` works with new provider
+□ Same documents indexed as before (regression test)
+□ graph_edges table populated after sync
+□ Assignee edges created for assigned issues
+□ Project edges created
+□ Issue relation edges created (blocks, etc.)
+□ No duplicate edges on re-sync
+□ Performance: sync time within 10% of legacy
+```
+
+### Go/No-Go Decision Point
+
+After Sprint 2, evaluate:
+
+| Criteria | Pass | Fail Action |
+|----------|------|-------------|
+| Linear sync works | ✓ | Debug, don't proceed |
+| Edge extraction accurate | ✓ | Fix extraction logic |
+| Performance acceptable | ✓ | Optimize before proceeding |
+| No regressions | ✓ | Fix regressions |
+
+**If all pass:** Proceed to Sprint 3 (Slack + GitHub migration)
+**If any fail:** Fix issues before proceeding, re-evaluate approach
+
+---
+
+## Sprint 3: Slack + GitHub Migration
+
+**Goal:** Migrate remaining high-value providers to trait system.
+
+**Only proceed if Sprint 2 Linear migration was successful.**
+
+### Tasks: Slack Migration
+
+| ID | Task | File | Est |
+|----|------|------|-----|
+| 3.1 | Create `slack.rs` provider file | `providers/slack.rs` | 2h |
+| 3.2 | Move Slack sync logic (~617 lines) | `providers/slack.rs` | 10h |
+| 3.3 | Implement `extract_edges()` for Slack | `providers/slack.rs` | 4h |
+| 3.4 | Extract: Author → Message edges | `providers/slack.rs` | 2h |
+| 3.5 | Extract: @mention edges (regex) | `providers/slack.rs` | 3h |
+| 3.6 | Extract: Message → Channel edges | `providers/slack.rs` | 1h |
+| 3.7 | Extract: Thread edges | `providers/slack.rs` | 2h |
+| 3.8 | Integration tests | `tests/slack.rs` | 6h |
+
+### Tasks: GitHub Migration
+
+| ID | Task | File | Est |
+|----|------|------|-----|
+| 3.9 | Create `github.rs` provider file | `providers/github.rs` | 2h |
+| 3.10 | Move GitHub sync logic (~145 lines) | `providers/github.rs` | 4h |
+| 3.11 | Implement `extract_edges()` for GitHub | `providers/github.rs` | 4h |
+| 3.12 | Extract: Author, Assignee, Reviewer edges | `providers/github.rs` | 3h |
+| 3.13 | Extract: @mention edges (regex) | `providers/github.rs` | 2h |
+| 3.14 | Integration tests | `tests/github.rs` | 4h |
+
+### Slack Edge Extraction
+
+```rust
+fn extract_edges(&self, message: &serde_json::Value) -> Vec<ExtractedEdge> {
+    let mut edges = vec![];
+    let ts = message["ts"].as_str().unwrap_or_default();
+    let channel = message["channel"].as_str().unwrap_or_default();
+    let author = message["user"].as_str().unwrap_or_default();
+    let text = message["text"].as_str().unwrap_or_default();
+    let observed_at = parse_slack_ts(ts);
+
+    // Author → Message
+    edges.push(ExtractedEdge {
+        from: NodeRef::user("slack", author),
+        to: NodeRef::message("slack", ts),
+        relation: Relation::AuthorOf,
+        observed_at,
+        metadata: None,
+    });
+
+    // Message → Channel
+    edges.push(ExtractedEdge {
+        from: NodeRef::message("slack", ts),
+        to: NodeRef::channel("slack", channel),
+        relation: Relation::PostedIn,
+        observed_at,
+        metadata: None,
+    });
+
+    // @mentions: <@U1234567890>
+    let mention_re = Regex::new(r"<@(U[A-Z0-9]+)>").unwrap();
+    for cap in mention_re.captures_iter(text) {
+        edges.push(ExtractedEdge {
+            from: NodeRef::user("slack", &cap[1]),
+            to: NodeRef::message("slack", ts),
+            relation: Relation::MentionedIn,
+            observed_at,
+            metadata: None,
+        });
+    }
+
+    // Thread
+    if let Some(thread_ts) = message.get("thread_ts").and_then(|t| t.as_str()) {
+        if thread_ts != ts { // Not the parent message
+            edges.push(ExtractedEdge {
+                from: NodeRef::message("slack", ts),
+                to: NodeRef::thread("slack", thread_ts),
+                relation: Relation::ThreadOf,
+                observed_at,
+                metadata: None,
+            });
+        }
+    }
+
+    edges
+}
+```
+
+### Testing Criteria
+
+```
+□ All three providers (Linear, Slack, GitHub) work via registry
+□ Legacy sync methods removed from lib.rs
+□ Graph populated with edges from all providers
+□ @mention extraction works for Slack (<@U...>) and GitHub (@username)
+□ No sync regressions
 ```
 
 ---
 
-## Sprint 3: RingEngine + Temporal Decay
+## Sprint 4: RingEngine + LocalGit
 
-**Goal:** Rings computed correctly with decay, cached.
+**Goal:** Ring calculation working, LocalGit extractor operational.
 
-### File Changes
-
-```
-engine/crates/minna-graph/src/
-├── lib.rs                    # Export RingEngine
-├── rings.rs                  # NEW: RingEngine implementation
-└── decay.rs                  # NEW: Temporal decay functions
-```
-
-### Tasks
+### Tasks: RingEngine
 
 | ID | Task | File | Est |
 |----|------|------|-----|
-| 3.1 | Create `RingEngine` struct | `minna-graph/src/rings.rs` | 4h |
-| 3.2 | Implement `edge_weight()` with decay | `minna-graph/src/decay.rs` | 4h |
-| 3.3 | Implement ghost edge logic (90 days) | `minna-graph/src/decay.rs` | 2h |
-| 3.4 | Implement `compute_rings()` weighted BFS | `minna-graph/src/rings.rs` | 8h |
-| 3.5 | Add depth-3 hard cap | `minna-graph/src/rings.rs` | 1h |
-| 3.6 | Implement ring cache persistence | `minna-graph/src/rings.rs` | 4h |
-| 3.7 | Implement `should_recompute()` | `minna-graph/src/rings.rs` | 3h |
-| 3.8 | Add `get_ring()` public API | `minna-graph/src/rings.rs` | 2h |
-| 3.9 | Unit tests for decay math | `minna-graph/src/decay.rs` | 4h |
-| 3.10 | Integration tests for ring computation | `minna-graph/tests/rings.rs` | 6h |
-| 3.11 | Benchmark on 10k/50k/100k graphs | `minna-graph/benches/` | 4h |
+| 4.1 | Create `rings.rs` module | `minna-graph/src/rings.rs` | 2h |
+| 4.2 | Implement `RingEngine` struct | `rings.rs` | 4h |
+| 4.3 | Implement `edge_weight()` with decay | `rings.rs` | 4h |
+| 4.4 | Implement ghost edge logic (90 days) | `rings.rs` | 2h |
+| 4.5 | Implement `compute_rings()` weighted BFS | `rings.rs` | 8h |
+| 4.6 | Add depth-3 hard cap | `rings.rs` | 1h |
+| 4.7 | Implement ring cache persistence | `rings.rs` | 4h |
+| 4.8 | Unit tests for decay math | `tests/decay.rs` | 4h |
+| 4.9 | Integration tests for ring computation | `tests/rings.rs` | 6h |
+| 4.10 | Benchmark on 10k/50k node graphs | `benches/rings.rs` | 4h |
+
+### Tasks: LocalGit
+
+| ID | Task | File | Est |
+|----|------|------|-----|
+| 4.11 | Add git2 dependency | `minna-graph/Cargo.toml` | 1h |
+| 4.12 | Create `LocalGitExtractor` | `minna-graph/src/extractors/local_git.rs` | 6h |
+| 4.13 | Implement commit walking (90-day cutoff) | `local_git.rs` | 4h |
+| 4.14 | Implement file diff extraction | `local_git.rs` | 4h |
+| 4.15 | Implement `get_file_collaborators()` | `local_git.rs` | 4h |
+| 4.16 | Integration tests with test repo | `tests/local_git.rs` | 4h |
 
 ### Testing Criteria
 
 ```
-□ 1-hop fresh edge (1 day old) → Ring 1
-□ 1-hop stale edge (1 year old) → Beyond
-□ 2-hop fresh edge → Ring 2
-□ 3+ hop → Beyond (depth cap)
+□ Fresh 1-hop edge → Ring 1
+□ Stale 1-hop edge (1 year) → Beyond
 □ BFS < 100ms for 10k nodes
-□ BFS < 500ms for 50k nodes
-□ Ring cache persists across restarts
+□ LocalGit extracts author → file edges
+□ LocalGit respects 90-day cutoff
 ```
 
 ---
 
-## Sprint 4: CLI + Search Integration
+## Sprint 5: CLI + Search Integration
 
 **Goal:** `minna gravity` commands work, search is ring-boosted.
 
-### File Changes
-
-```
-engine/crates/
-├── minna-cli/src/
-│   ├── commands/
-│   │   ├── mod.rs            # MODIFY: Add gravity module
-│   │   └── gravity.rs        # NEW: gravity subcommands
-│   └── main.rs               # MODIFY: Register gravity command
-├── minna-mcp/src/
-│   └── lib.rs                # MODIFY: Add ring boost to search
-├── minna-core/src/
-│   └── lib.rs                # MODIFY: Add ring-aware search method
-```
-
 ### Tasks
 
 | ID | Task | File | Est |
 |----|------|------|-----|
-| 4.1 | Create `gravity.rs` command module | `minna-cli/src/commands/gravity.rs` | 2h |
-| 4.2 | Implement `gravity status` | `minna-cli/src/commands/gravity.rs` | 4h |
-| 4.3 | Implement `gravity show` | `minna-cli/src/commands/gravity.rs` | 4h |
-| 4.4 | Implement `gravity explain <entity>` | `minna-cli/src/commands/gravity.rs` | 6h |
-| 4.5 | Implement `gravity refresh` | `minna-cli/src/commands/gravity.rs` | 2h |
-| 4.6 | Implement `gravity pin/unpin` | `minna-cli/src/commands/gravity.rs` | 4h |
-| 4.7 | Implement `identity link suggest` | `minna-cli/src/commands/gravity.rs` | 6h |
-| 4.8 | Add ring boost to MCP search | `minna-mcp/src/lib.rs` | 4h |
-| 4.9 | Add ring filter to search | `minna-mcp/src/lib.rs` | 3h |
-| 4.10 | CLI integration tests | `minna-cli/tests/` | 6h |
-
-### CLI Registration
-
-```rust
-// In minna-cli/src/main.rs
-#[derive(Subcommand)]
-enum Commands {
-    Add { ... },
-    Sync { ... },
-    Status,
-    // ... existing commands
-
-    /// Manage your gravity well (collaboration graph)
-    Gravity {
-        #[command(subcommand)]
-        command: GravityCommands,
-    },
-}
-
-#[derive(Subcommand)]
-enum GravityCommands {
-    /// Show gravity well status
-    Status,
-    /// Show Ring 1 and Ring 2 members
-    Show,
-    /// Explain why an entity is in its ring
-    Explain { entity: String },
-    /// Force ring recomputation
-    Refresh,
-    /// Pin entity to Ring 1
-    Pin { entity: String },
-    /// Remove pin from entity
-    Unpin { entity: String },
-}
-```
-
-### Testing Criteria
-
-```
-□ `minna gravity status` shows node/edge counts
-□ `minna gravity explain` shows path to user
-□ `minna gravity refresh` triggers recomputation
-□ Ring 1 results boosted 2x in search
-□ Ring filter works
-```
+| 5.1 | Create `gravity.rs` command module | `minna-cli/src/commands/gravity.rs` | 2h |
+| 5.2 | Implement `gravity status` | `gravity.rs` | 4h |
+| 5.3 | Implement `gravity show` | `gravity.rs` | 4h |
+| 5.4 | Implement `gravity explain <entity>` | `gravity.rs` | 6h |
+| 5.5 | Implement `gravity refresh` | `gravity.rs` | 2h |
+| 5.6 | Implement `gravity pin/unpin` | `gravity.rs` | 4h |
+| 5.7 | Implement `identity link suggest` | `gravity.rs` | 6h |
+| 5.8 | Add ring boost to MCP search | `minna-mcp/src/lib.rs` | 4h |
+| 5.9 | Add ring filter to search | `minna-mcp/src/lib.rs` | 3h |
+| 5.10 | CLI integration tests | `tests/cli_gravity.rs` | 6h |
 
 ---
 
-## Sprint 5: Sync Scheduler
+## Sprint 6: Sync Scheduler
 
 **Goal:** Ring-aware sync scheduling operational.
 
-### File Changes
-
-```
-engine/crates/
-├── minna-core/src/
-│   ├── scheduler.rs          # NEW: GravityScheduler
-│   └── lib.rs                # MODIFY: Integrate scheduler
-├── minna-server/src/
-│   └── main.rs               # MODIFY: Use scheduler for sync dispatch
-```
-
 ### Tasks
 
 | ID | Task | File | Est |
 |----|------|------|-----|
-| 5.1 | Create `GravityScheduler` | `minna-core/src/scheduler.rs` | 4h |
-| 5.2 | Implement Ring 1 hourly sync | `minna-core/src/scheduler.rs` | 4h |
-| 5.3 | Implement Ring 2 head-only sync | `minna-core/src/scheduler.rs` | 6h |
-| 5.4 | Implement Beyond on-demand | `minna-core/src/scheduler.rs` | 4h |
-| 5.5 | Add `SyncDepth` enum | `minna-core/src/providers/mod.rs` | 2h |
-| 5.6 | Integrate scheduler in daemon | `minna-server/src/main.rs` | 6h |
-| 5.7 | Add sync budget tracking | `minna-core/src/scheduler.rs` | 4h |
-| 5.8 | Store manual pins in config | `minna-core/src/scheduler.rs` | 3h |
-| 5.9 | Integration tests | `minna-core/tests/scheduler.rs` | 6h |
-| 5.10 | Measure sync volume reduction | Manual testing | 4h |
+| 6.1 | Create `scheduler.rs` module | `minna-core/src/scheduler.rs` | 4h |
+| 6.2 | Implement Ring 1 hourly sync | `scheduler.rs` | 4h |
+| 6.3 | Implement Ring 2 head-only sync | `scheduler.rs` | 6h |
+| 6.4 | Implement Beyond on-demand | `scheduler.rs` | 4h |
+| 6.5 | Add `SyncDepth` enum | `providers/mod.rs` | 2h |
+| 6.6 | Integrate scheduler in daemon | `minna-server/src/main.rs` | 6h |
+| 6.7 | Add sync budget tracking | `scheduler.rs` | 4h |
+| 6.8 | Integration tests | `tests/scheduler.rs` | 6h |
+| 6.9 | Measure sync volume reduction | Manual | 4h |
 
-### Testing Criteria
+---
+
+## Hardening: Weeks 13-14
+
+- Bug fixes from Sprints 1-6
+- Performance optimization
+- Memory profiling
+- Error handling audit
+- User documentation
+- Team dogfooding
+- Address feedback
+
+---
+
+## Risk Register
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| Linear migration reveals trait issues | Low | High | Sprint 2 is go/no-go gate |
+| Slack migration complex (617 lines) | Medium | Medium | Budget extra time, can split |
+| git2 crate issues | Low | Medium | Fallback to shell git |
+| BFS performance on large graphs | Low | High | Early benchmarking in Sprint 4 |
+| Sync regressions | Medium | High | Comprehensive regression tests |
+
+---
+
+## Summary: Clean Architecture Path
 
 ```
-□ Ring 1 objects sync hourly
-□ Ring 2 objects sync 6-hourly (head-only)
-□ Beyond objects only on query
-□ Pinned entities treated as Ring 1
-□ Sync volume reduced by 40%
+Sprint 1: Foundation
+    ↓
+Sprint 2: Linear (proof of concept) ←── GO/NO-GO GATE
+    ↓
+Sprint 3: Slack + GitHub (if Sprint 2 passes)
+    ↓
+Sprint 4: RingEngine + LocalGit
+    ↓
+Sprint 5: CLI + Search
+    ↓
+Sprint 6: Scheduler
+    ↓
+Hardening
 ```
 
----
-
-## Hardening: Weeks 11-12
-
-Same as original plan—bug fixes, performance, documentation, dogfooding.
+**Total timeline: 14 weeks** (was 12 with hooks approach)
+**Benefit:** Clean, consistent architecture. No tech debt. Easier to maintain.
 
 ---
 
-## Dependency Graph
-
-```
-Sprint 1 (Graph Schema)
-    │
-    ├── Sprint 2 (Edge Extraction) ──────┐
-    │                                     │
-    └── Sprint 3 (RingEngine) ───────────┤
-                                          │
-                                          ▼
-                              Sprint 4 (CLI + Search)
-                                          │
-                                          ▼
-                              Sprint 5 (Scheduler)
-                                          │
-                                          ▼
-                                    Hardening
-```
-
-Sprint 2 and Sprint 3 can partially overlap—extraction doesn't require rings, rings don't require extraction (can test with synthetic data).
-
----
-
-## Risk Mitigations (Updated)
-
-| Risk | Original Assumption | Reality | Mitigation |
-|------|---------------------|---------|------------|
-| Legacy provider migration | Would migrate to trait | Keep legacy, add hooks | Add extraction directly to existing methods |
-| Separate graph DB | New database | Same SQLite via minna-ingest | Add tables to existing schema |
-| git2 complexity | Unknown | Medium | Spike early, fallback to shell git |
-| Schema migration | New DB | Existing DB with data | Write migration for existing users |
-
----
-
-## Pre-Sprint Checklist
-
-Before starting Sprint 1:
-
-- [ ] Confirm: Is there existing user data in `minna.db` that needs migration?
-- [ ] Confirm: What's the current embedding dimension? (for graph node metadata)
-- [ ] Confirm: Are there any existing graph-like structures we should reuse?
-- [ ] Spike: Test git2 crate with a real repo (1 day)
-
----
-
-**Ready for review.** This plan accounts for actual codebase structure.
+*Ready for execution.*
