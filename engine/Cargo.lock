@@ -2072,6 +2072,7 @@ dependencies = [
  "chrono",
  "minna-auth-bridge",
  "minna-core",
+ "minna-graph",
  "minna-ingest",
  "minna-mcp",
  "minna-vector",
