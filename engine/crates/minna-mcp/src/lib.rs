@@ -5,8 +5,10 @@ use anyhow::{anyhow, Result};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
+use tracing::debug;
 
 use minna_auth_bridge::{Provider, TokenStore};
+use minna_graph::{GraphStore, Ring};
 use minna_ingest::{Document, IngestionEngine};
 use minna_vector::{Embedder, VectorStore};
 
@@ -73,6 +75,7 @@ pub struct McpContext {
     pub vector: Arc<VectorStore>,
     pub auth_store: Arc<RwLock<TokenStore>>,
     pub embedder: Arc<dyn Embedder>,
+    pub graph: Option<Arc<GraphStore>>,
 }
 
 impl McpContext {
@@ -87,6 +90,24 @@ impl McpContext {
             vector: Arc::new(vector),
             auth_store: Arc::new(RwLock::new(auth_store)),
             embedder,
+            graph: None,
+        }
+    }
+
+    /// Create with GraphStore for ring-boosted search.
+    pub fn with_graph(
+        ingest: IngestionEngine,
+        vector: VectorStore,
+        auth_store: TokenStore,
+        embedder: Arc<dyn Embedder>,
+        graph: GraphStore,
+    ) -> Self {
+        Self {
+            ingest: Arc::new(ingest),
+            vector: Arc::new(vector),
+            auth_store: Arc::new(RwLock::new(auth_store)),
+            embedder,
+            graph: Some(Arc::new(graph)),
         }
     }
 }
@@ -198,6 +219,11 @@ impl McpHandler {
             }
         }
 
+        // Apply ring boost if GraphStore is available (Gravity Well)
+        if let Some(graph) = &self.ctx.graph {
+            scores = self.apply_ring_boost(graph, scores).await;
+        }
+
         let mut scored: Vec<(i64, f32)> = scores.into_iter().collect();
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         scored.truncate(limit);
@@ -247,6 +273,121 @@ impl McpHandler {
         }
         Err(anyhow!("resource not found"))
     }
+
+    /// Apply ring-based boost to search scores.
+    ///
+    /// Documents associated with closer ring assignments get higher scores:
+    /// - Core: 1.5x boost
+    /// - Ring 1: 1.3x boost
+    /// - Ring 2: 1.1x boost
+    /// - Beyond: 1.0x (no boost)
+    async fn apply_ring_boost(
+        &self,
+        graph: &GraphStore,
+        mut scores: HashMap<i64, f32>,
+    ) -> HashMap<i64, f32> {
+        // Fetch documents to get their URIs
+        let doc_ids: Vec<i64> = scores.keys().copied().collect();
+        let docs = match self.ctx.ingest.fetch_documents_by_ids(&doc_ids).await {
+            Ok(docs) => docs,
+            Err(_) => return scores, // Fall back to unboosted scores
+        };
+
+        for doc in docs {
+            let Some(doc_id) = doc.id else { continue };
+            let Some(score) = scores.get_mut(&doc_id) else { continue };
+
+            // Try to find a ring assignment for this document's entity
+            // Construct potential node IDs from the document
+            let node_ids = extract_node_ids_from_doc(&doc);
+
+            let mut best_boost = 1.0f32;
+            for node_id in node_ids {
+                if let Ok(Some(assignment)) = graph.get_ring_assignment(&node_id).await {
+                    let boost = ring_boost(assignment.ring);
+                    if boost > best_boost {
+                        best_boost = boost;
+                    }
+                }
+            }
+
+            if best_boost > 1.0 {
+                debug!(
+                    "Ring boost applied: doc_id={}, uri={}, boost={}",
+                    doc_id, doc.uri, best_boost
+                );
+                *score *= best_boost;
+            }
+        }
+
+        scores
+    }
+}
+
+/// Get the boost multiplier for a ring.
+fn ring_boost(ring: Ring) -> f32 {
+    match ring {
+        Ring::Core => 1.5,
+        Ring::One => 1.3,
+        Ring::Two => 1.1,
+        Ring::Beyond => 1.0,
+    }
+}
+
+/// Extract potential graph node IDs from a document.
+///
+/// Attempts to construct node IDs based on the document's source and URI.
+fn extract_node_ids_from_doc(doc: &Document) -> Vec<String> {
+    let mut ids = Vec::new();
+    let source = &doc.source;
+    let uri = &doc.uri;
+
+    // Try to extract entity type and ID from URI patterns
+    // Linear: linear://issue/ISSUE-123 -> issue:linear:ISSUE-123
+    if source == "linear" {
+        if let Some(id) = uri.strip_prefix("linear://issue/") {
+            ids.push(format!("issue:linear:{}", id));
+        }
+    }
+
+    // GitHub: github://org/repo/pr/123 -> pr:github:org/repo/123
+    if source == "github" {
+        if uri.contains("/pr/") || uri.contains("/pull/") {
+            // Extract PR number from URI
+            if let Some(num) = uri.split('/').last() {
+                ids.push(format!("pr:github:{}", num));
+            }
+        } else if uri.contains("/issues/") {
+            if let Some(num) = uri.split('/').last() {
+                ids.push(format!("issue:github:{}", num));
+            }
+        }
+    }
+
+    // Slack: slack://C123/1234567890.123456 -> message:slack:1234567890.123456
+    if source == "slack" {
+        if let Some(ts) = uri.split('/').last() {
+            if ts.contains('.') {
+                ids.push(format!("message:slack:{}", ts));
+            }
+        }
+    }
+
+    // Notion: notion://page/xxx -> document:notion:xxx
+    if source == "notion" {
+        if let Some(id) = uri.strip_prefix("notion://page/") {
+            ids.push(format!("document:notion:{}", id));
+        }
+    }
+
+    // Google: google://doc/xxx -> document:google:xxx
+    if source == "google" || source == "google_drive" {
+        if let Some(id) = uri.strip_prefix("google://doc/") {
+            ids.push(format!("document:google:{}", id));
+        }
+    }
+
+    ids
 }
 
 fn parse_get_context_params(params: serde_json::Value) -> Result<GetContextParams> {

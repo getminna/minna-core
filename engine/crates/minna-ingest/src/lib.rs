@@ -7,6 +7,9 @@ use sqlx::{sqlite::SqliteConnectOptions, sqlite::SqlitePoolOptions, SqlitePool};
 use std::str::FromStr;
 use tracing::instrument;
 
+// Re-export graph types for convenience
+pub use minna_graph::{GraphStore, ExtractedEdge, NodeRef, Relation, NodeType, Ring};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Document {
     pub id: Option<i64>,
@@ -49,6 +52,11 @@ impl IngestionEngine {
 
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    /// Get a GraphStore instance backed by the same database.
+    pub fn graph_store(&self) -> GraphStore {
+        GraphStore::new(self.pool.clone())
     }
 
     #[instrument(skip_all)]
@@ -124,6 +132,9 @@ impl IngestionEngine {
         )
         .execute(&self.pool)
         .await?;
+
+        // Initialize graph schema (Gravity Well)
+        GraphStore::init_schema(&self.pool).await?;
 
         Ok(())
     }

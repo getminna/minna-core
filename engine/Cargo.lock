@@ -1182,6 +1182,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "git2"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b903b73e45dc0c6c596f2d37eccece7c1c8bb6e4407b001096387c63d0d93724"
+dependencies = [
+ "bitflags",
+ "libc",
+ "libgit2-sys",
+ "log",
+ "openssl-probe",
+ "openssl-sys",
+ "url",
+]
+
+[[package]]
 name = "h2"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1748,6 +1763,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "libgit2-sys"
+version = "0.17.0+1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10472326a8a6477c3c20a64547b0059e4b0d086869eee31e6d7da728a8eb7224"
+dependencies = [
+ "cc",
+ "libc",
+ "libssh2-sys",
+ "libz-sys",
+ "openssl-sys",
+ "pkg-config",
+]
+
+[[package]]
 name = "libredox"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1765,6 +1794,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2e99fb7a497b1e3339bc746195567ed8d3e24945ecd636e3619d20b9de9e9149"
 dependencies = [
  "cc",
+ "pkg-config",
+ "vcpkg",
+]
+
+[[package]]
+name = "libssh2-sys"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "220e4f05ad4a218192533b300327f5150e809b54c4ec83b5a1d91833601811b9"
+dependencies = [
+ "cc",
+ "libc",
+ "libz-sys",
+ "openssl-sys",
+ "pkg-config",
+ "vcpkg",
+]
+
+[[package]]
+name = "libz-sys"
+version = "1.1.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15d118bbf3771060e7311cc7bb0545b01d08a8b4a7de949198dec1fa0ca1c0f7"
+dependencies = [
+ "cc",
+ "libc",
  "pkg-config",
  "vcpkg",
 ]
@@ -1928,11 +1983,13 @@ dependencies = [
  "dirs 5.0.1",
  "indicatif",
  "minna-auth-bridge",
+ "minna-graph",
  "open",
  "ratatui",
  "reqwest",
  "serde",
  "serde_json",
+ "sqlx",
  "tiny_http",
  "tokio",
  "tracing",
@@ -1948,6 +2005,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "minna-auth-bridge",
+ "minna-graph",
  "minna-ingest",
  "minna-vector",
  "regex",
@@ -1960,11 +2018,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "minna-graph"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "git2",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "minna-ingest"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "minna-graph",
  "serde",
  "serde_json",
  "sqlx",
@@ -1980,6 +2054,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "minna-auth-bridge",
+ "minna-graph",
  "minna-ingest",
  "minna-vector",
  "regex",
@@ -2000,6 +2075,7 @@ dependencies = [
  "chrono",
  "minna-auth-bridge",
  "minna-core",
+ "minna-graph",
  "minna-ingest",
  "minna-mcp",
  "minna-vector",

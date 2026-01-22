@@ -1,6 +1,8 @@
 use anyhow::Result;
 use console::style;
+use minna_graph::{GraphStore, IdentityService};
 use serde::Serialize;
+use sqlx::sqlite::SqlitePoolOptions;
 use std::path::PathBuf;
 
 use crate::admin_client::AdminClient;
@@ -11,6 +13,12 @@ struct Status {
     daemon: DaemonStatusJson,
     sources: Vec<SourceStatus>,
     storage: StorageStatus,
+    identity: IdentityStatus,
+}
+
+#[derive(Serialize)]
+struct IdentityStatus {
+    pending_links: usize,
 }
 
 #[derive(Serialize)]
@@ -58,6 +66,7 @@ pub async fn run(json: bool) -> Result<()> {
                     vectors: 0,
                     db_bytes: 0,
                 },
+                identity: IdentityStatus { pending_links: 0 },
             };
             println!("{}", serde_json::to_string_pretty(&status)?);
             return Ok(());
@@ -91,6 +100,7 @@ pub async fn run(json: bool) -> Result<()> {
                         vectors: 0,
                         db_bytes: 0,
                     },
+                    identity: IdentityStatus { pending_links: 0 },
                 };
                 println!("{}", serde_json::to_string_pretty(&status)?);
                 return Ok(());
@@ -105,6 +115,9 @@ pub async fn run(json: bool) -> Result<()> {
 
     // Get database stats
     let db_stats = get_db_stats();
+
+    // Get pending identity links
+    let pending_links = get_pending_identity_links().await.unwrap_or(0);
 
     // Build sources list from credentials
     let sources: Vec<SourceStatus> = if let Some(creds) = &creds_status {
@@ -141,6 +154,7 @@ pub async fn run(json: bool) -> Result<()> {
         },
         sources,
         storage: db_stats,
+        identity: IdentityStatus { pending_links },
     };
 
     if json {
@@ -218,6 +232,20 @@ pub async fn run(json: bool) -> Result<()> {
         status.storage.db_bytes as f64 / 1_000_000.0
     );
 
+    // Show identity linking suggestions if any
+    if status.identity.pending_links > 0 {
+        println!();
+        println!(
+            "  {} {} new accounts found across sources.",
+            style("Identity:").cyan().bold(),
+            status.identity.pending_links
+        );
+        println!(
+            "  {} to review and confirm.",
+            style("$ minna link").dim()
+        );
+    }
+
     println!();
 
     Ok(())
@@ -250,4 +278,20 @@ fn get_db_path() -> PathBuf {
             .join("minna.db");
     }
     PathBuf::from(".minna").join("minna.db")
+}
+
+/// Get the count of pending identity link suggestions.
+async fn get_pending_identity_links() -> Result<usize> {
+    let db_path = get_db_path();
+    if !db_path.exists() {
+        return Ok(0);
+    }
+
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect(&format!("sqlite:{}", db_path.display()))
+        .await?;
+
+    let graph = GraphStore::new(pool);
+    IdentityService::pending_suggestions_count(&graph).await
 }

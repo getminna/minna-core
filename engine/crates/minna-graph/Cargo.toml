@@ -1,0 +1,22 @@
+[package]
+name = "minna-graph"
+version = "0.1.0"
+edition = "2021"
+description = "Relationship graph and ring calculation for Minna"
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+sqlx = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+git2 = { workspace = true, optional = true }
+
+[features]
+default = []
+local-git = ["git2"]
+
+[dev-dependencies]
+tokio = { workspace = true }

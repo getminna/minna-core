@@ -18,3 +18,4 @@ async-trait = { workspace = true }
 minna-ingest = { path = "../minna-ingest" }
 minna-vector = { path = "../minna-vector" }
 minna-auth-bridge = { path = "../minna-auth-bridge" }
+minna-graph = { path = "../minna-graph" }

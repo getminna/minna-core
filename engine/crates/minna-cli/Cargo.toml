@@ -11,8 +11,10 @@ path = "src/main.rs"
 
 [dependencies]
 minna-auth-bridge = { path = "../minna-auth-bridge" }
+minna-graph = { path = "../minna-graph" }
 
 anyhow.workspace = true
+sqlx = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
