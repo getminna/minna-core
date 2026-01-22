@@ -228,24 +228,13 @@ impl AdminHandler {
                 info!("[SYNC_PROVIDER] Calling sync function: provider={}, delay_from_handler_start_ms={}", provider, sync_start - handler_start);
                 
                 let result = match provider {
-                    "slack" => {
-                        info!("[SYNC_PROVIDER] Calling sync_slack");
-                        core.sync_slack(since_days, mode).await
-                    },
-                    "github" => {
-                        info!("[SYNC_PROVIDER] Calling sync_github");
-                        core.sync_github(since_days, mode).await
-                    },
-                    "google" | "google_drive" | "google_workspace" => {
-                        info!("[SYNC_PROVIDER] Calling sync_google_workspace");
-                        core.sync_google_workspace(since_days, mode).await
-                    },
-                    // Extensible providers via registry
-                    "linear" | "notion" | "atlassian" | "jira" | "confluence" => {
-                        let provider_name = if provider == "jira" || provider == "confluence" {
-                            "atlassian"
-                        } else {
-                            provider
+                    // All providers now use the registry with Gravity Well edge extraction
+                    "google" | "google_drive" | "google_workspace" |
+                    "github" | "slack" | "linear" | "notion" | "atlassian" | "jira" | "confluence" => {
+                        let provider_name = match provider {
+                            "jira" | "confluence" => "atlassian",
+                            "google_drive" | "google_workspace" => "google",
+                            _ => provider,
                         };
                         info!("[SYNC_PROVIDER] Calling sync_via_registry for {}", provider_name);
                         let registry = self.state.get_registry();

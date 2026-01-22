@@ -14,13 +14,19 @@
 pub mod config;
 
 mod atlassian;
+mod github;
+mod google;
 mod linear;
 mod notion;
+mod slack;
 
 pub use atlassian::AtlassianProvider;
 pub use config::{AuthConfig, ProviderConfig, ProvidersConfig};
+pub use github::GithubProvider;
+pub use google::GoogleProvider;
 pub use linear::LinearProvider;
 pub use notion::NotionProvider;
+pub use slack::SlackProvider;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -171,7 +177,7 @@ impl ProviderRegistry {
     fn register_builtin_providers(config: &ProvidersConfig) -> HashMap<String, Arc<dyn SyncProvider>> {
         let mut map: HashMap<String, Arc<dyn SyncProvider>> = HashMap::new();
 
-        // Extensible providers (migrated to trait-based system)
+        // All providers are now trait-based with Gravity Well edge extraction
         if config.is_enabled("notion") {
             map.insert("notion".to_string(), Arc::new(NotionProvider));
         }
@@ -181,17 +187,15 @@ impl ProviderRegistry {
         if config.is_enabled("linear") {
             map.insert("linear".to_string(), Arc::new(LinearProvider));
         }
-
-        // Legacy providers to be migrated:
-        // if config.is_enabled("slack") {
-        //     map.insert("slack".to_string(), Arc::new(SlackProvider));
-        // }
-        // if config.is_enabled("github") {
-        //     map.insert("github".to_string(), Arc::new(GithubProvider));
-        // }
-        // if config.is_enabled("google") {
-        //     map.insert("google".to_string(), Arc::new(GoogleProvider));
-        // }
+        if config.is_enabled("slack") {
+            map.insert("slack".to_string(), Arc::new(SlackProvider));
+        }
+        if config.is_enabled("github") {
+            map.insert("github".to_string(), Arc::new(GithubProvider));
+        }
+        if config.is_enabled("google") {
+            map.insert("google".to_string(), Arc::new(GoogleProvider));
+        }
 
         map
     }
