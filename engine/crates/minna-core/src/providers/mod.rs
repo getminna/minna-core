@@ -31,6 +31,9 @@ use chrono::{DateTime, Utc};
 
 use crate::{Document, IngestionEngine, Embedder, VectorStore};
 
+// Re-export graph types for providers to use
+pub use minna_graph::{ExtractedEdge, GraphStore, NodeRef, Relation, NodeType};
+
 // Re-export the main SyncSummary from lib.rs
 // This is defined in lib.rs line ~1930 and used by all sync methods
 pub use crate::SyncSummary;
@@ -49,6 +52,8 @@ pub struct SyncContext<'a> {
     pub http_client: &'a reqwest::Client,
     /// Provider registry for token loading.
     pub registry: &'a ProviderRegistry,
+    /// Graph store for relationship tracking (Gravity Well).
+    pub graph: &'a GraphStore,
 }
 
 impl<'a> SyncContext<'a> {
@@ -68,6 +73,19 @@ impl<'a> SyncContext<'a> {
     /// Set sync cursor after successful sync.
     pub async fn set_sync_cursor(&self, provider: &str, cursor: &str) -> Result<()> {
         self.ingest.set_sync_cursor(provider, cursor).await
+    }
+
+    /// Store extracted edges in the graph (Gravity Well).
+    ///
+    /// Upserts nodes and edges. The GraphStore handles node creation internally.
+    pub async fn index_edges(&self, edges: &[ExtractedEdge]) -> Result<usize> {
+        let mut count = 0;
+        for edge in edges {
+            // upsert_edge handles node creation internally
+            self.graph.upsert_edge(edge).await?;
+            count += 1;
+        }
+        Ok(count)
     }
 }
 
@@ -101,6 +119,24 @@ pub trait SyncProvider: Send + Sync {
             "provider": self.name(),
             "error": "discovery not implemented"
         }))
+    }
+
+    /// Extract relationship edges from synced data.
+    ///
+    /// Called after sync to populate the Gravity Well graph.
+    /// Default implementation returns empty - providers opt-in by overriding.
+    ///
+    /// # Arguments
+    /// * `ctx` - Shared context with graph store
+    /// * `doc` - The document that was just synced
+    /// * `raw_data` - Optional raw API response for richer extraction
+    async fn extract_edges(
+        &self,
+        _ctx: &SyncContext<'_>,
+        _doc: &Document,
+        _raw_data: Option<&serde_json::Value>,
+    ) -> Result<Vec<ExtractedEdge>> {
+        Ok(Vec::new())
     }
 }
 

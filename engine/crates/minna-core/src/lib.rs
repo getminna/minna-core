@@ -156,6 +156,9 @@ impl Core {
             .redirect(Policy::limited(5))
             .build()?;
 
+        // Get graph store for Gravity Well
+        let graph = self.ingest.graph_store();
+
         // Create sync context
         let ctx = SyncContext {
             ingest: &self.ingest,
@@ -163,6 +166,7 @@ impl Core {
             embedder: &self.embedder,
             http_client: &http_client,
             registry,
+            graph: &graph,
         };
 
         provider.sync(&ctx, since_days, mode).await
@@ -181,12 +185,16 @@ impl Core {
             .timeout(Duration::from_secs(30))
             .build()?;
 
+        // Get graph store for Gravity Well
+        let graph = self.ingest.graph_store();
+
         let ctx = SyncContext {
             ingest: &self.ingest,
             vector: &self.vector,
             embedder: &self.embedder,
             http_client: &http_client,
             registry,
+            graph: &graph,
         };
 
         provider.discover(&ctx).await
