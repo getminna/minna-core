@@ -76,6 +76,9 @@ enum Commands {
         #[arg(long, short)]
         all: bool,
     },
+
+    /// Review and link user identities across sources
+    Link,
 }
 
 #[derive(Subcommand)]
@@ -141,5 +144,6 @@ async fn main() -> Result<()> {
         },
         Some(Commands::Remove { source }) => commands::remove::run(&source).await,
         Some(Commands::Sync { sources, all }) => commands::sync::run(sources, all).await,
+        Some(Commands::Link) => commands::link::run().await,
     }
 }

@@ -13,12 +13,20 @@
 
 pub mod config;
 
-mod notion;
 mod atlassian;
+mod github;
+mod google;
+mod linear;
+mod notion;
+mod slack;
 
-pub use config::{AuthConfig, ProviderConfig, ProvidersConfig};
-pub use notion::NotionProvider;
 pub use atlassian::AtlassianProvider;
+pub use config::{AuthConfig, ProviderConfig, ProvidersConfig};
+pub use github::GithubProvider;
+pub use google::GoogleProvider;
+pub use linear::LinearProvider;
+pub use notion::NotionProvider;
+pub use slack::SlackProvider;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -30,6 +38,9 @@ use chrono::{DateTime, Utc};
 // serde re-exported from config module
 
 use crate::{Document, IngestionEngine, Embedder, VectorStore};
+
+// Re-export graph types for providers to use
+pub use minna_graph::{ExtractedEdge, GraphStore, NodeRef, Relation, NodeType};
 
 // Re-export the main SyncSummary from lib.rs
 // This is defined in lib.rs line ~1930 and used by all sync methods
@@ -49,6 +60,10 @@ pub struct SyncContext<'a> {
     pub http_client: &'a reqwest::Client,
     /// Provider registry for token loading.
     pub registry: &'a ProviderRegistry,
+    /// Graph store for relationship tracking (Gravity Well).
+    pub graph: &'a GraphStore,
+    /// Path to auth token storage (for OAuth providers using TokenStore).
+    pub auth_path: &'a Path,
 }
 
 impl<'a> SyncContext<'a> {
@@ -68,6 +83,19 @@ impl<'a> SyncContext<'a> {
     /// Set sync cursor after successful sync.
     pub async fn set_sync_cursor(&self, provider: &str, cursor: &str) -> Result<()> {
         self.ingest.set_sync_cursor(provider, cursor).await
+    }
+
+    /// Store extracted edges in the graph (Gravity Well).
+    ///
+    /// Upserts nodes and edges. The GraphStore handles node creation internally.
+    pub async fn index_edges(&self, edges: &[ExtractedEdge]) -> Result<usize> {
+        let mut count = 0;
+        for edge in edges {
+            // upsert_edge handles node creation internally
+            self.graph.upsert_edge(edge).await?;
+            count += 1;
+        }
+        Ok(count)
     }
 }
 
@@ -102,6 +130,24 @@ pub trait SyncProvider: Send + Sync {
             "error": "discovery not implemented"
         }))
     }
+
+    /// Extract relationship edges from synced data.
+    ///
+    /// Called after sync to populate the Gravity Well graph.
+    /// Default implementation returns empty - providers opt-in by overriding.
+    ///
+    /// # Arguments
+    /// * `ctx` - Shared context with graph store
+    /// * `doc` - The document that was just synced
+    /// * `raw_data` - Optional raw API response for richer extraction
+    async fn extract_edges(
+        &self,
+        _ctx: &SyncContext<'_>,
+        _doc: &Document,
+        _raw_data: Option<&serde_json::Value>,
+    ) -> Result<Vec<ExtractedEdge>> {
+        Ok(Vec::new())
+    }
 }
 
 /// Registry managing all available providers.
@@ -131,27 +177,25 @@ impl ProviderRegistry {
     fn register_builtin_providers(config: &ProvidersConfig) -> HashMap<String, Arc<dyn SyncProvider>> {
         let mut map: HashMap<String, Arc<dyn SyncProvider>> = HashMap::new();
 
-        // New extensible providers
+        // All providers are now trait-based with Gravity Well edge extraction
         if config.is_enabled("notion") {
             map.insert("notion".to_string(), Arc::new(NotionProvider));
         }
         if config.is_enabled("atlassian") {
             map.insert("atlassian".to_string(), Arc::new(AtlassianProvider));
         }
-
-        // Legacy providers will be migrated here:
-        // if config.is_enabled("slack") {
-        //     map.insert("slack".to_string(), Arc::new(SlackProvider));
-        // }
-        // if config.is_enabled("github") {
-        //     map.insert("github".to_string(), Arc::new(GithubProvider));
-        // }
-        // if config.is_enabled("linear") {
-        //     map.insert("linear".to_string(), Arc::new(LinearProvider));
-        // }
-        // if config.is_enabled("google") {
-        //     map.insert("google".to_string(), Arc::new(GoogleProvider));
-        // }
+        if config.is_enabled("linear") {
+            map.insert("linear".to_string(), Arc::new(LinearProvider));
+        }
+        if config.is_enabled("slack") {
+            map.insert("slack".to_string(), Arc::new(SlackProvider));
+        }
+        if config.is_enabled("github") {
+            map.insert("github".to_string(), Arc::new(GithubProvider));
+        }
+        if config.is_enabled("google") {
+            map.insert("google".to_string(), Arc::new(GoogleProvider));
+        }
 
         map
     }

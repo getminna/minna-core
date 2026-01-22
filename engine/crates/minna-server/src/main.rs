@@ -10,8 +10,9 @@ use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 use tracing::{error, info};
 
-use minna_core::{Core, MinnaPaths, TokenStore, ProviderRegistry};
+use minna_core::{Core, MinnaPaths, TokenStore, ProviderRegistry, SyncScheduler, SyncPlanner};
 use minna_auth_bridge::Provider;
+use minna_graph::Ring;
 use minna_mcp::{McpContext, McpHandler, ToolRequest, ToolResponse};
 
 /// Shared state that tracks Core initialization
@@ -19,6 +20,7 @@ struct ServerState {
     core: RwLock<Option<Core>>,
     paths: MinnaPaths,
     registry: ProviderRegistry,
+    scheduler: RwLock<SyncScheduler>,
 }
 
 impl ServerState {
@@ -28,10 +30,18 @@ impl ServerState {
         let registry = ProviderRegistry::new(&config_path)
             .unwrap_or_else(|_| ProviderRegistry::with_defaults());
 
+        // Initialize scheduler (disabled by default, enabled after Core is ready)
+        let mut scheduler = SyncScheduler::new();
+        scheduler.set_config(minna_core::SchedulerConfig {
+            enabled: false, // Will be enabled after Core initializes
+            ..Default::default()
+        });
+
         Self {
             core: RwLock::new(None),
             paths,
             registry,
+            scheduler: RwLock::new(scheduler),
         }
     }
 
@@ -45,6 +55,19 @@ impl ServerState {
 
     fn get_registry(&self) -> &ProviderRegistry {
         &self.registry
+    }
+
+    async fn get_scheduler(&self) -> tokio::sync::RwLockWriteGuard<'_, SyncScheduler> {
+        self.scheduler.write().await
+    }
+
+    /// Enable the scheduler after Core is ready
+    async fn enable_scheduler(&self) {
+        let mut scheduler = self.scheduler.write().await;
+        let mut config = scheduler.config().clone();
+        config.enabled = true;
+        scheduler.set_config(config);
+        info!("[SCHEDULER] Sync scheduler enabled");
     }
 }
 
@@ -94,6 +117,10 @@ impl AdminHandler {
             }
             Some("get_status") => {
                 let ready = self.state.is_ready().await;
+                let scheduler_stats = {
+                    let mut scheduler = self.state.get_scheduler().await;
+                    scheduler.stats()
+                };
                 AdminResponse {
                     id,
                     ok: true,
@@ -101,6 +128,12 @@ impl AdminHandler {
                         "running": true,
                         "ready": ready,
                         "version": env!("CARGO_PKG_VERSION"),
+                        "scheduler": {
+                            "pending_syncs": scheduler_stats.pending,
+                            "in_progress": scheduler_stats.in_progress,
+                            "budget_used": scheduler_stats.budget_used,
+                            "budget_total": scheduler_stats.budget_total,
+                        }
                     })),
                     error: None,
                 }
@@ -228,28 +261,13 @@ impl AdminHandler {
                 info!("[SYNC_PROVIDER] Calling sync function: provider={}, delay_from_handler_start_ms={}", provider, sync_start - handler_start);
                 
                 let result = match provider {
-                    "slack" => {
-                        info!("[SYNC_PROVIDER] Calling sync_slack");
-                        core.sync_slack(since_days, mode).await
-                    },
-                    "github" => {
-                        info!("[SYNC_PROVIDER] Calling sync_github");
-                        core.sync_github(since_days, mode).await
-                    },
-                    "google" | "google_drive" | "google_workspace" => {
-                        info!("[SYNC_PROVIDER] Calling sync_google_workspace");
-                        core.sync_google_workspace(since_days, mode).await
-                    },
-                    "linear" => {
-                        info!("[SYNC_PROVIDER] Calling sync_linear");
-                        core.sync_linear(since_days, mode).await
-                    },
-                    // New extensible providers via registry
-                    "notion" | "atlassian" | "jira" | "confluence" => {
-                        let provider_name = if provider == "jira" || provider == "confluence" {
-                            "atlassian"
-                        } else {
-                            provider
+                    // All providers now use the registry with Gravity Well edge extraction
+                    "google" | "google_drive" | "google_workspace" |
+                    "github" | "slack" | "linear" | "notion" | "atlassian" | "jira" | "confluence" => {
+                        let provider_name = match provider {
+                            "jira" | "confluence" => "atlassian",
+                            "google_drive" | "google_workspace" => "google",
+                            _ => provider,
                         };
                         info!("[SYNC_PROVIDER] Calling sync_via_registry for {}", provider_name);
                         let registry = self.state.get_registry();
@@ -270,17 +288,33 @@ impl AdminHandler {
                 info!("[SYNC_PROVIDER] Sync function completed: provider={}, duration_ms={}", provider, sync_end - sync_start);
 
                 match result {
-                    Ok(summary) => AdminResponse {
-                        id,
-                        ok: true,
-                        result: Some(serde_json::to_value(summary).unwrap_or_default()),
-                        error: None,
+                    Ok(summary) => {
+                        // Record API usage with scheduler (estimate calls from items)
+                        let api_calls = (summary.documents_processed as u32 / 10).max(1);
+                        {
+                            let mut scheduler = self.state.get_scheduler().await;
+                            // On-demand syncs are treated as Ring::One
+                            scheduler.complete_sync(provider, Ring::One, api_calls);
+                        }
+                        AdminResponse {
+                            id,
+                            ok: true,
+                            result: Some(serde_json::to_value(summary).unwrap_or_default()),
+                            error: None,
+                        }
                     },
-                    Err(err) => AdminResponse {
-                        id,
-                        ok: false,
-                        result: None,
-                        error: Some(err.to_string()),
+                    Err(err) => {
+                        // Record failure
+                        {
+                            let mut scheduler = self.state.get_scheduler().await;
+                            scheduler.fail_sync(provider);
+                        }
+                        AdminResponse {
+                            id,
+                            ok: false,
+                            result: None,
+                            error: Some(err.to_string()),
+                        }
                     },
                 }
             }
@@ -466,6 +500,10 @@ async fn main() -> Result<()> {
                 *state_clone.core.write().await = Some(core.clone());
                 // Emit ready signal to Swift UI
                 minna_core::emit_ready();
+                // Enable the sync scheduler now that Core is ready
+                state_clone.enable_scheduler().await;
+                // Start the scheduler background task
+                spawn_scheduler_task(state_clone.clone());
                 // Start clustering task if enabled
                 spawn_cluster_task(core);
             }
@@ -496,11 +534,12 @@ async fn main() -> Result<()> {
                 sleep(Duration::from_millis(100)).await;
             }
             if let Some(core) = state.get_core().await {
-                let ctx = McpContext::new(
+                let ctx = McpContext::with_graph(
                     core.ingest.clone(),
                     core.vector.clone(),
                     core.auth.clone(),
                     core.embedder.clone(),
+                    core.graph.clone(),
                 );
                 let handler = Arc::new(McpHandler::new(ctx));
                 if let Err(err) = handle_mcp_client(stream, handler).await {
@@ -539,6 +578,98 @@ fn spawn_cluster_task(core: Core) {
             sleep(Duration::from_secs(interval)).await;
             if let Err(err) = core.run_clustering(min_similarity, min_points).await {
                 error!("cluster run failed: {}", err);
+            }
+        }
+    });
+}
+
+/// Spawn the background scheduler task that handles ring-aware sync scheduling.
+fn spawn_scheduler_task(state: Arc<ServerState>) {
+    let enabled = std::env::var("MINNA_ENABLE_SCHEDULER")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if !enabled {
+        info!("[SCHEDULER] Background scheduler disabled (set MINNA_ENABLE_SCHEDULER=1 to enable)");
+        return;
+    }
+
+    info!("[SCHEDULER] Starting background scheduler task");
+
+    tokio::spawn(async move {
+        // Check every minute for scheduled syncs
+        let check_interval = Duration::from_secs(60);
+
+        loop {
+            sleep(check_interval).await;
+
+            let core = match state.get_core().await {
+                Some(c) => c,
+                None => continue,
+            };
+
+            // Schedule syncs based on ring assignments
+            let providers: Vec<&str> = state.get_registry().list_available();
+            {
+                let mut scheduler = state.get_scheduler().await;
+                if let Err(err) = scheduler.schedule_from_rings(&core.graph, &providers).await {
+                    error!("[SCHEDULER] Failed to schedule syncs: {}", err);
+                    continue;
+                }
+            }
+
+            // Process pending syncs
+            loop {
+                let sync_task = {
+                    let mut scheduler = state.get_scheduler().await;
+                    scheduler.next_sync()
+                };
+
+                let sync_task = match sync_task {
+                    Some(t) => t,
+                    None => break, // No more pending syncs
+                };
+
+                info!(
+                    "[SCHEDULER] Executing scheduled sync: provider={}, ring={:?}, depth={:?}",
+                    sync_task.provider, sync_task.ring, sync_task.depth
+                );
+
+                // Determine sync parameters based on ring
+                let (since_days, mode) = SyncPlanner::plan_for_ring(sync_task.ring);
+
+                // Execute sync
+                let registry = state.get_registry();
+                let result = core.sync_via_registry(
+                    registry,
+                    &sync_task.provider,
+                    since_days,
+                    mode,
+                ).await;
+
+                // Update scheduler with result
+                let mut scheduler = state.get_scheduler().await;
+                match result {
+                    Ok(summary) => {
+                        // Estimate API calls from items synced (rough heuristic)
+                        let api_calls = (summary.documents_processed as u32 / 10).max(1);
+                        scheduler.complete_sync(&sync_task.provider, sync_task.ring, api_calls);
+                        info!(
+                            "[SCHEDULER] Sync complete: provider={}, items={}",
+                            sync_task.provider, summary.documents_processed
+                        );
+                    }
+                    Err(err) => {
+                        scheduler.fail_sync(&sync_task.provider);
+                        error!(
+                            "[SCHEDULER] Sync failed: provider={}, error={}",
+                            sync_task.provider, err
+                        );
+                    }
+                }
+
+                // Small delay between syncs to avoid overwhelming APIs
+                sleep(Duration::from_secs(5)).await;
             }
         }
     });

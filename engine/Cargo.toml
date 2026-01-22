@@ -4,6 +4,7 @@ members = [
     "crates/minna-core",
     "crates/minna-ingest",
     "crates/minna-vector",
+    "crates/minna-graph",
     "crates/minna-mcp",
     "crates/minna-auth-bridge",
     "crates/minna-server",
@@ -44,3 +45,4 @@ directories = "5"
 ratatui = "0.29"
 crossterm = "0.28"
 toml = "0.8"
+git2 = "0.19"

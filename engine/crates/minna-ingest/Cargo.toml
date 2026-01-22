@@ -11,3 +11,4 @@ chrono = { workspace = true }
 sqlx = { workspace = true }
 url = { workspace = true }
 tracing = { workspace = true }
+minna-graph = { path = "../minna-graph" }

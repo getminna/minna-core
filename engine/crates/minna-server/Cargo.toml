@@ -15,6 +15,7 @@ minna-mcp = { path = "../minna-mcp" }
 minna-vector = { path = "../minna-vector" }
 minna-ingest = { path = "../minna-ingest" }
 minna-auth-bridge = { path = "../minna-auth-bridge" }
+minna-graph = { path = "../minna-graph" }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }

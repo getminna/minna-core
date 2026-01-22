@@ -13,9 +13,11 @@ use tracing::{info, warn};
 
 pub mod progress;
 pub mod providers;
+pub mod scheduler;
 
 pub use progress::{emit_progress, emit_result, emit_error, emit_warmup_progress, emit_ready};
 pub use providers::{ProviderRegistry, SyncProvider, SyncContext, ProvidersConfig};
+pub use scheduler::{SyncScheduler, SyncDepth, SchedulerConfig, ScheduledSync, SyncPlanner};
 // SyncSummary is defined below and re-exported from providers for convenience
 
 pub use minna_auth_bridge::{AuthToken, TokenStore};
@@ -76,6 +78,7 @@ pub struct Core {
     pub vector: VectorStore,
     pub auth: TokenStore,
     pub embedder: Arc<dyn Embedder>,
+    pub graph: minna_graph::GraphStore,
 }
 
 impl Core {
@@ -86,11 +89,16 @@ impl Core {
         let vector = VectorStore::new(&paths.db_path).await?;
         let auth = TokenStore::load(&paths.auth_path)?;
         let embedder = embedder_from_env_or_hash();
+        // Initialize GraphStore using the same pool as ingest
+        let graph = minna_graph::GraphStore::new(ingest.pool().clone());
+        // Ensure graph schema is initialized
+        minna_graph::GraphStore::init_schema(ingest.pool()).await?;
         Ok(Self {
             ingest,
             vector,
             auth,
             embedder,
+            graph,
         })
     }
 
@@ -156,6 +164,10 @@ impl Core {
             .redirect(Policy::limited(5))
             .build()?;
 
+        // Get graph store for Gravity Well
+        let graph = self.ingest.graph_store();
+        let auth_path = self.auth.path();
+
         // Create sync context
         let ctx = SyncContext {
             ingest: &self.ingest,
@@ -163,6 +175,8 @@ impl Core {
             embedder: &self.embedder,
             http_client: &http_client,
             registry,
+            graph: &graph,
+            auth_path,
         };
 
         provider.sync(&ctx, since_days, mode).await
@@ -181,12 +195,18 @@ impl Core {
             .timeout(Duration::from_secs(30))
             .build()?;
 
+        // Get graph store for Gravity Well
+        let graph = self.ingest.graph_store();
+        let auth_path = self.auth.path();
+
         let ctx = SyncContext {
             ingest: &self.ingest,
             vector: &self.vector,
             embedder: &self.embedder,
             http_client: &http_client,
             registry,
+            graph: &graph,
+            auth_path,
         };
 
         provider.discover(&ctx).await
