@@ -27,6 +27,7 @@
 //! engine.recalculate_rings(&store, "user:slack:U123").await?;
 //! ```
 
+pub mod extractors;
 pub mod ring_engine;
 pub mod schema;
 pub mod storage;
@@ -37,3 +38,7 @@ pub use schema::{
     ExtractedEdge, GraphEdge, GraphNode, NodeRef, NodeType, Relation, Ring, RingAssignment,
 };
 pub use storage::GraphStore;
+
+// Re-export extractors when features enabled
+#[cfg(feature = "local-git")]
+pub use extractors::LocalGitExtractor;
