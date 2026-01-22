@@ -240,12 +240,8 @@ impl AdminHandler {
                         info!("[SYNC_PROVIDER] Calling sync_google_workspace");
                         core.sync_google_workspace(since_days, mode).await
                     },
-                    "linear" => {
-                        info!("[SYNC_PROVIDER] Calling sync_linear");
-                        core.sync_linear(since_days, mode).await
-                    },
-                    // New extensible providers via registry
-                    "notion" | "atlassian" | "jira" | "confluence" => {
+                    // Extensible providers via registry
+                    "linear" | "notion" | "atlassian" | "jira" | "confluence" => {
                         let provider_name = if provider == "jira" || provider == "confluence" {
                             "atlassian"
                         } else {

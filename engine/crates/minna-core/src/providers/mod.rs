@@ -13,12 +13,14 @@
 
 pub mod config;
 
-mod notion;
 mod atlassian;
+mod linear;
+mod notion;
 
-pub use config::{AuthConfig, ProviderConfig, ProvidersConfig};
-pub use notion::NotionProvider;
 pub use atlassian::AtlassianProvider;
+pub use config::{AuthConfig, ProviderConfig, ProvidersConfig};
+pub use linear::LinearProvider;
+pub use notion::NotionProvider;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -54,6 +56,8 @@ pub struct SyncContext<'a> {
     pub registry: &'a ProviderRegistry,
     /// Graph store for relationship tracking (Gravity Well).
     pub graph: &'a GraphStore,
+    /// Path to auth token storage (for OAuth providers using TokenStore).
+    pub auth_path: &'a Path,
 }
 
 impl<'a> SyncContext<'a> {
@@ -167,23 +171,23 @@ impl ProviderRegistry {
     fn register_builtin_providers(config: &ProvidersConfig) -> HashMap<String, Arc<dyn SyncProvider>> {
         let mut map: HashMap<String, Arc<dyn SyncProvider>> = HashMap::new();
 
-        // New extensible providers
+        // Extensible providers (migrated to trait-based system)
         if config.is_enabled("notion") {
             map.insert("notion".to_string(), Arc::new(NotionProvider));
         }
         if config.is_enabled("atlassian") {
             map.insert("atlassian".to_string(), Arc::new(AtlassianProvider));
         }
+        if config.is_enabled("linear") {
+            map.insert("linear".to_string(), Arc::new(LinearProvider));
+        }
 
-        // Legacy providers will be migrated here:
+        // Legacy providers to be migrated:
         // if config.is_enabled("slack") {
         //     map.insert("slack".to_string(), Arc::new(SlackProvider));
         // }
         // if config.is_enabled("github") {
         //     map.insert("github".to_string(), Arc::new(GithubProvider));
-        // }
-        // if config.is_enabled("linear") {
-        //     map.insert("linear".to_string(), Arc::new(LinearProvider));
         // }
         // if config.is_enabled("google") {
         //     map.insert("google".to_string(), Arc::new(GoogleProvider));

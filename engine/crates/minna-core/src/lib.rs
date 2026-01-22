@@ -158,6 +158,7 @@ impl Core {
 
         // Get graph store for Gravity Well
         let graph = self.ingest.graph_store();
+        let auth_path = self.auth.path();
 
         // Create sync context
         let ctx = SyncContext {
@@ -167,6 +168,7 @@ impl Core {
             http_client: &http_client,
             registry,
             graph: &graph,
+            auth_path,
         };
 
         provider.sync(&ctx, since_days, mode).await
@@ -187,6 +189,7 @@ impl Core {
 
         // Get graph store for Gravity Well
         let graph = self.ingest.graph_store();
+        let auth_path = self.auth.path();
 
         let ctx = SyncContext {
             ingest: &self.ingest,
@@ -195,6 +198,7 @@ impl Core {
             http_client: &http_client,
             registry,
             graph: &graph,
+            auth_path,
         };
 
         provider.discover(&ctx).await
