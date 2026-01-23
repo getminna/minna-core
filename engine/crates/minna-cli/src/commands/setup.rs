@@ -299,7 +299,5 @@ fn show_manual_instructions() -> Result<()> {
 }
 
 fn get_socket_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".minna/mcp.sock")
+    crate::paths::get_socket_path()
 }

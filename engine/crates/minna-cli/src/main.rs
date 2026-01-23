@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 
 mod admin_client;
 mod commands;
+mod paths;
 mod sources;
 mod tui;
 mod ui;

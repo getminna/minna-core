@@ -227,15 +227,11 @@ pub async fn logs(lines: usize, follow: bool) -> Result<()> {
 }
 
 fn get_pid_file() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".minna/daemon.pid")
+    crate::paths::get_pid_file()
 }
 
 fn get_socket_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".minna/mcp.sock")
+    crate::paths::get_socket_path()
 }
 
 fn get_log_file() -> PathBuf {

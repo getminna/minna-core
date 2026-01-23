@@ -86,25 +86,19 @@ fn print_welcome() {
     println!("  {bold}Get started:{reset}", bold = bold, reset = reset);
     println!();
     println!(
-        "    {pink}${reset} minna add slack      {dim}Connect Slack{reset}",
+        "    {pink}${reset} minna add            {dim}Connect your sources{reset}",
         pink = pink,
         dim = dim,
         reset = reset
     );
     println!(
-        "    {pink}${reset} minna add linear     {dim}Connect Linear{reset}",
+        "    {pink}${reset} minna mcp            {dim}Add Minna to your agent{reset}",
         pink = pink,
         dim = dim,
         reset = reset
     );
     println!(
-        "    {pink}${reset} minna status         {dim}View dashboard{reset}",
-        pink = pink,
-        dim = dim,
-        reset = reset
-    );
-    println!(
-        "    {pink}${reset} minna setup cursor   {dim}Configure your AI{reset}",
+        "    {pink}${reset} minna status         {dim}View your dashboard{reset}",
         pink = pink,
         dim = dim,
         reset = reset
@@ -170,9 +164,7 @@ fn print_welcome() {
 }
 
 fn check_daemon_status() -> bool {
-    let pid_file = dirs::home_dir()
-        .map(|h| h.join(".minna/daemon.pid"))
-        .unwrap_or_default();
+    let pid_file = crate::paths::get_pid_file();
 
     if !pid_file.exists() {
         return false;
@@ -194,11 +186,7 @@ fn check_daemon_status() -> bool {
 
 fn count_sources() -> usize {
     // Check auth.json for configured sources
-    let auth_path = directories::ProjectDirs::from("ai", "minna", "minna")
-        .map(|d| d.data_dir().join("auth.json"))
-        .or_else(|| {
-            dirs::home_dir().map(|h| h.join(".local/share/minna/auth.json"))
-        });
+    let auth_path = Some(crate::paths::get_auth_path());
 
     if let Some(path) = auth_path {
         if let Ok(content) = std::fs::read_to_string(&path) {
