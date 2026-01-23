@@ -1,6 +1,6 @@
-//! TUI view for `minna setup` command
+//! TUI view for `minna mcp` command
 //!
-//! Shows tool detection and config injection confirmation
+//! Shows tool detection and MCP config injection confirmation
 
 use anyhow::Result;
 use crossterm::{

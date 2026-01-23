@@ -6,7 +6,7 @@
 //! - Background: #1A1B26
 
 pub mod add;
-pub mod setup;
+pub mod mcp;
 pub mod status;
 pub mod theme;
 pub mod welcome;

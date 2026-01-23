@@ -42,8 +42,8 @@ enum Commands {
         ui_test: bool,
     },
 
-    /// Configure MCP for your AI tool (auto-detects current IDE)
-    Setup {
+    /// Connect Minna to your AI agent (auto-detects current IDE)
+    Mcp {
         /// AI tool to configure (claude-code, cursor, zed, antigravity, manual)
         /// If omitted, auto-detects current IDE or installed tools.
         #[arg(value_name = "TOOL")]
@@ -130,11 +130,11 @@ async fn main() -> Result<()> {
                 commands::status::run(json).await
             }
         }
-        Some(Commands::Setup { tool, ui_test }) => {
+        Some(Commands::Mcp { tool, ui_test }) => {
             if ui_test {
-                tui::setup::run_test(tool).await
+                tui::mcp::run_test(tool).await
             } else {
-                commands::setup::run(tool).await
+                commands::mcp::run(tool).await
             }
         }
         Some(Commands::Daemon { command }) => match command {
