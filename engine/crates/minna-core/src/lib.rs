@@ -14,10 +14,12 @@ use tracing::{info, warn};
 pub mod progress;
 pub mod providers;
 pub mod scheduler;
+pub mod tools;
 
 pub use progress::{emit_progress, emit_result, emit_error, emit_warmup_progress, emit_ready};
 pub use providers::{ProviderRegistry, SyncProvider, SyncContext, ProvidersConfig};
 pub use scheduler::{SyncScheduler, SyncDepth, SchedulerConfig, ScheduledSync, SyncPlanner};
+pub use tools::{Checkpoint, CheckpointStore, LoadQuery};
 // SyncSummary is defined below and re-exported from providers for convenience
 
 pub use minna_auth_bridge::{AuthToken, TokenStore};

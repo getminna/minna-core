@@ -82,7 +82,7 @@ Your data stays on your machine. Always.
 
 **Fast-Path Router.** When your agent requests a specific URL (a Linear issue, a Notion page, a Slack thread), Minna fetches it directly from the API instead of searching the index. Real-time data when you need it, cached results when you don't.
 
-**Secure by default.** Credentials stored in macOS Keychain. Tokens never hit disk unencrypted. Your data stays sovereign.
+**Sovereign Friendly.** Setup in seconds via the **Minna Auth Bridge**, or bring your own OAuth credentials for 100% data sovereignty. Your tokens, your machine, your rules.
 
 **Optimized for agents.** Instead of dumping raw JSON from Slack into your prompt, Minna extracts the relevant snippets, chunks them semantically, and provides only the signal. Save 80% on token costs. 
 
@@ -123,13 +123,10 @@ Each source uses a personal token you create. Minna walks you through getting it
 ```
 $ minna add linear
 
-  To connect Linear, you'll need an API key.
+  Recommended: Connect Linear via Minna Auth Bridge (1-click).
+  Link: https://auth.minna.cloud/api/connect/linear
 
-  1. Go to: https://linear.app/settings/api
-  2. Create a new Personal API Key
-  3. Copy the key
-
-? Paste your Linear API key: ████████████████
+? Open browser for 1-click auth? (Y/n) y
 
 ✔ Connected to Linear (Acme Corp)
 
@@ -204,14 +201,16 @@ Paste it. Watch your AI remember.
 
 ## Supported Sources
 
-|Source       |Auth Method                              |
-|-------------|-----------------------------------------|
-|Slack        |User OAuth Token (`xoxp-...`)            |
-|Linear       |Personal API Key                         |
-|GitHub       |Fine-grained PAT                         |
-|Notion       |Internal Integration Token               |
-|Atlassian    |API Token (id.atlassian.com)             |
-|Google Drive |Your OAuth App (client_id + secret)      |
+| Source | 1-Click Auth | Manual Credentials |
+| :--- | :---: | :--- |
+| **Slack** | ✅ | User OAuth Token (`xoxp-...`) |
+| **Linear** | ✅ | Personal API Key |
+| **GitHub** | ✅ | Fine-grained PAT (`github_pat_...`) |
+| **Google** | ⏳ | Your OAuth App (client_id + secret) |
+| **Notion** | ❌ | Internal Integration Token (`secret_...`) |
+| **Atlassian** | ❌ | API Token (id.atlassian.com) |
+
+*1-Click Auth is currently ⏳ for Google pending CASA Tier 2 certification.*
 
 Each source syncs via async [Tokio](https://tokio.rs/) workers. Backfill 90 days in minutes, not hours.
 
@@ -233,14 +232,14 @@ Your AI connects to Minna via [MCP](https://modelcontextprotocol.io) (Model Cont
 
 All data is stored locally:
 
-```
-~/.config/minna/config.toml    # Your settings
-~/.local/share/minna/db/       # Vector store + raw text
-~/.minna/mcp.sock              # Unix socket for MCP
-~/.cache/minna/logs/           # Daemon logs
+```bash
+~/Library/Application Support/Minna/minna.db      # SQLite + Vector store
+~/Library/Application Support/Minna/mcp.sock     # Unix socket for MCP
+~/Library/Application Support/Minna/auth.json     # Encrypted auth metadata
+~/Library/Caches/minna/logs/daemon.log           # Daemon logs
 ```
 
-No cloud. No telemetry. Your credentials live in macOS Keychain.
+No cloud. No telemetry. Your credentials live safely in the **macOS Keychain**.
 
 -----
 
@@ -292,7 +291,7 @@ Credentials are removed from Keychain automatically.
 ## Philosophy
 
 1. **Local-first.** Your data never leaves your machine.
-2. **Sovereign credentials.** You own the OAuth apps. You control access.
+2. **Sovereign Friendly.** 1-click convenience with manual fallback for total control.
 3. **Zero telemetry.** We don't know what you search. We don't want to.
 4. **Unix philosophy.** One tool, one job. Composable. Scriptable.
 

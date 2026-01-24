@@ -14,7 +14,7 @@ use crate::progress::emit_progress;
 use minna_auth_bridge::TokenStore;
 
 use super::{
-    call_with_backoff, ExtractedEdge, NodeRef, NodeType, Relation,
+    call_google_api, ExtractedEdge, NodeRef, NodeType, Relation,
     SyncContext, SyncProvider, SyncSummary,
 };
 
@@ -81,9 +81,10 @@ impl GoogleProvider {
         info!("Starting Google Drive sync");
 
         let token_store = TokenStore::load(ctx.auth_path)?;
-        let token = token_store
+        let initial_token = token_store
             .get(minna_auth_bridge::Provider::Google)
             .ok_or_else(|| anyhow::anyhow!("missing google token"))?;
+        let mut current_token = initial_token.access_token.clone();
 
         let since = self.calculate_since(ctx, "google_drive", since_days, is_full_sync).await?;
 
@@ -99,8 +100,14 @@ impl GoogleProvider {
                 .unwrap_or(50)
         };
 
-        // Get user email
-        let user_info = self.get_user_info(ctx, &token.access_token).await?;
+        // Get user email (with token refresh support)
+        let user_info_result = call_google_api("google", ctx.http_client, &current_token, |token| {
+            ctx.http_client
+                .get("https://www.googleapis.com/oauth2/v2/userinfo")
+                .bearer_auth(token)
+        }).await?;
+        current_token = user_info_result.token;
+        let user_info: GoogleUserInfo = user_info_result.response.json().await?;
         let user_email = user_info.email.clone().unwrap_or_else(|| "me".to_string());
 
         let mut docs_indexed = 0usize;
@@ -123,13 +130,15 @@ impl GoogleProvider {
                 query_params.push(("pageToken", pt.clone()));
             }
 
-            let response = call_with_backoff("google_drive", || {
+            let api_result = call_google_api("google_drive", ctx.http_client, &current_token, |token| {
                 ctx.http_client
                     .get("https://www.googleapis.com/drive/v3/files")
                     .query(&query_params)
-                    .bearer_auth(&token.access_token)
+                    .bearer_auth(token)
             })
             .await?;
+            current_token = api_result.token;
+            let response = api_result.response;
 
             let list: DriveListResponse = response.json().await?;
 
@@ -195,9 +204,10 @@ impl GoogleProvider {
         info!("Starting Google Calendar sync");
 
         let token_store = TokenStore::load(ctx.auth_path)?;
-        let token = token_store
+        let initial_token = token_store
             .get(minna_auth_bridge::Provider::Google)
             .ok_or_else(|| anyhow::anyhow!("missing google token"))?;
+        let mut current_token = initial_token.access_token.clone();
 
         let since = self.calculate_since(ctx, "google_calendar", since_days, is_full_sync).await?;
 
@@ -229,13 +239,15 @@ impl GoogleProvider {
                 query_params.push(("pageToken", pt.clone()));
             }
 
-            let response = call_with_backoff("google_calendar", || {
+            let api_result = call_google_api("google_calendar", ctx.http_client, &current_token, |token| {
                 ctx.http_client
                     .get("https://www.googleapis.com/calendar/v3/calendars/primary/events")
                     .query(&query_params)
-                    .bearer_auth(&token.access_token)
+                    .bearer_auth(token)
             })
             .await?;
+            current_token = api_result.token;
+            let response = api_result.response;
 
             let events: CalendarEventsResponse = response.json().await?;
 
@@ -313,9 +325,10 @@ impl GoogleProvider {
         info!("Starting Gmail sync");
 
         let token_store = TokenStore::load(ctx.auth_path)?;
-        let token = token_store
+        let initial_token = token_store
             .get(minna_auth_bridge::Provider::Google)
             .ok_or_else(|| anyhow::anyhow!("missing google token"))?;
+        let mut current_token = initial_token.access_token.clone();
 
         let days = if is_full_sync {
             since_days.unwrap_or(90)
@@ -344,15 +357,16 @@ impl GoogleProvider {
             ("maxResults", message_limit.to_string()),
         ];
 
-        let response = call_with_backoff("gmail", || {
+        let api_result = call_google_api("gmail", ctx.http_client, &current_token, |token| {
             ctx.http_client
                 .get("https://gmail.googleapis.com/gmail/v1/users/me/messages")
                 .query(&query_params)
-                .bearer_auth(&token.access_token)
+                .bearer_auth(token)
         })
         .await?;
+        current_token = api_result.token;
 
-        let list: GmailListResponse = response.json().await?;
+        let list: GmailListResponse = api_result.response.json().await?;
 
         let mut docs_indexed = 0usize;
         let mut edges_extracted = 0usize;
@@ -365,12 +379,14 @@ impl GoogleProvider {
                     msg_ref.id
                 );
 
-                let msg_response = call_with_backoff("gmail", || {
+                let msg_result = call_google_api("gmail", ctx.http_client, &current_token, |token| {
                     ctx.http_client
                         .get(&msg_url)
-                        .bearer_auth(&token.access_token)
+                        .bearer_auth(token)
                 })
                 .await?;
+                current_token = msg_result.token;
+                let msg_response = msg_result.response;
 
                 let message: GmailMessage = msg_response.json().await?;
 
@@ -455,21 +471,6 @@ impl GoogleProvider {
                 Ok(cursor)
             }
         }
-    }
-
-    async fn get_user_info(
-        &self,
-        ctx: &SyncContext<'_>,
-        access_token: &str,
-    ) -> Result<GoogleUserInfo> {
-        let response = call_with_backoff("google", || {
-            ctx.http_client
-                .get("https://www.googleapis.com/oauth2/v2/userinfo")
-                .bearer_auth(access_token)
-        })
-        .await?;
-
-        Ok(response.json().await?)
     }
 
     fn extract_drive_edges(

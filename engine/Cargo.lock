@@ -732,6 +732,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "deunicode"
+version = "1.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abd57806937c9cc163efc8ea3910e00a62e2aeb0b8119f1793a978088f8f6b04"
+
+[[package]]
 name = "dialoguer"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1983,7 +1989,10 @@ dependencies = [
  "dirs 5.0.1",
  "indicatif",
  "minna-auth-bridge",
+ "minna-core",
  "minna-graph",
+ "minna-ingest",
+ "minna-vector",
  "open",
  "ratatui",
  "reqwest",
@@ -2012,6 +2021,8 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "slug",
+ "tempfile",
  "tokio",
  "toml",
  "tracing",
@@ -2054,6 +2065,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "minna-auth-bridge",
+ "minna-core",
  "minna-graph",
  "minna-ingest",
  "minna-vector",
@@ -3261,6 +3273,16 @@ name = "slab"
 version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a2ae44ef20feb57a68b23d846850f861394c2e02dc425a50098ae8c90267589"
+
+[[package]]
+name = "slug"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "882a80f72ee45de3cc9a5afeb2da0331d58df69e4e7d8eeb5d3c7784ae67e724"
+dependencies = [
+ "deunicode",
+ "wasm-bindgen",
+]
 
 [[package]]
 name = "smallvec"

@@ -299,6 +299,69 @@ fn keychain_get(account: &str) -> Result<String> {
     Ok(token)
 }
 
+/// Write a value to the macOS Keychain.
+pub fn keychain_set(account: &str, value: &str) -> Result<()> {
+    use std::process::Command;
+
+    // Delete existing entry (ignore errors if it doesn't exist)
+    let _ = Command::new("security")
+        .args(["delete-generic-password", "-s", "minna_ai", "-a", account])
+        .output();
+
+    // Add new entry
+    let output = Command::new("security")
+        .args(["add-generic-password", "-s", "minna_ai", "-a", account, "-w", value])
+        .output()
+        .map_err(|e| anyhow!("Failed to run security command: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("Failed to save to keychain: {}", stderr.trim()));
+    }
+
+    Ok(())
+}
+
+/// Refresh Google OAuth token using stored credentials.
+/// Returns the new access token on success.
+pub async fn refresh_google_token(http_client: &reqwest::Client) -> Result<String> {
+    // Load credentials from keychain
+    let client_id = keychain_get("google_client_id")?;
+    let client_secret = keychain_get("google_client_secret")?;
+    let refresh_token = keychain_get("googleWorkspace_refresh_token")?;
+
+    tracing::info!("Refreshing Google OAuth token...");
+
+    // Request new access token
+    let response = http_client
+        .post("https://oauth2.googleapis.com/token")
+        .form(&[
+            ("client_id", client_id.as_str()),
+            ("client_secret", client_secret.as_str()),
+            ("refresh_token", refresh_token.as_str()),
+            ("grant_type", "refresh_token"),
+        ])
+        .send()
+        .await?;
+
+    let data: serde_json::Value = response.json().await?;
+
+    if let Some(error) = data["error"].as_str() {
+        let desc = data["error_description"].as_str().unwrap_or("unknown error");
+        return Err(anyhow!("Token refresh failed: {} - {}", error, desc));
+    }
+
+    let new_token = data["access_token"]
+        .as_str()
+        .ok_or_else(|| anyhow!("No access_token in refresh response"))?;
+
+    // Update keychain with new token
+    keychain_set("googleWorkspace_token", new_token)?;
+
+    tracing::info!("Google token refreshed successfully");
+    Ok(new_token.to_string())
+}
+
 /// Calculate the "since" timestamp for sync operations.
 pub fn calculate_since(
     since_days: Option<i64>,
@@ -381,6 +444,102 @@ where
 
         if status.as_u16() == 403 {
             return Err(anyhow!("{}: Access forbidden (403). Check permissions.", provider));
+        }
+
+        return Err(anyhow!("{}: HTTP {} - {}", provider, status, response.text().await.unwrap_or_default()));
+    }
+}
+
+/// Result of a Google API call, including potentially refreshed token.
+pub struct GoogleApiResult {
+    pub response: reqwest::Response,
+    pub token: String,
+}
+
+/// HTTP request helper for Google APIs with automatic token refresh on 401.
+/// Returns the response and the (possibly refreshed) access token.
+pub async fn call_google_api<F>(
+    provider: &str,
+    http_client: &reqwest::Client,
+    token: &str,
+    mut builder_fn: F,
+) -> Result<GoogleApiResult>
+where
+    F: FnMut(&str) -> reqwest::RequestBuilder,
+{
+    use std::time::Duration;
+    use tokio::time::sleep;
+
+    let mut current_token = token.to_string();
+    let mut retries = 0;
+    let mut delay = Duration::from_secs(1);
+    let max_retries = 8;
+    let mut token_refreshed = false;
+
+    loop {
+        let response = builder_fn(&current_token).send().await?;
+        let status = response.status();
+
+        if status.is_success() {
+            return Ok(GoogleApiResult {
+                response,
+                token: current_token,
+            });
+        }
+
+        // Handle 401 Unauthorized - refresh token and retry once
+        if status.as_u16() == 401 && !token_refreshed {
+            tracing::warn!("{}: Got 401, attempting token refresh...", provider);
+            match refresh_google_token(http_client).await {
+                Ok(new_token) => {
+                    current_token = new_token;
+                    token_refreshed = true;
+                    tracing::info!("{}: Token refreshed, retrying request", provider);
+                    continue;
+                }
+                Err(e) => {
+                    tracing::error!("{}: Token refresh failed: {}", provider, e);
+                    return Err(anyhow!("{}: Authentication failed. Please re-authenticate with: minna add google", provider));
+                }
+            }
+        }
+
+        if status.as_u16() == 429 {
+            // Rate limited
+            if retries >= max_retries {
+                return Err(anyhow!("{}: Rate limited after {} retries", provider, retries));
+            }
+
+            let wait = response
+                .headers()
+                .get("Retry-After")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u64>().ok())
+                .map(Duration::from_secs)
+                .unwrap_or(delay);
+
+            tracing::warn!("{}: Rate limited, waiting {:?}", provider, wait);
+            sleep(wait).await;
+
+            retries += 1;
+            delay = std::cmp::min(delay * 2, Duration::from_secs(60));
+            continue;
+        }
+
+        if status.is_server_error() && retries < 3 {
+            tracing::warn!("{}: Server error {}, retrying...", provider, status);
+            sleep(delay).await;
+            retries += 1;
+            delay *= 2;
+            continue;
+        }
+
+        if status.as_u16() == 403 {
+            return Err(anyhow!("{}: Access forbidden (403). Check API is enabled and scopes are correct.", provider));
+        }
+
+        if status.as_u16() == 401 {
+            return Err(anyhow!("{}: Authentication failed after token refresh. Please re-authenticate with: minna add google", provider));
         }
 
         return Err(anyhow!("{}: HTTP {} - {}", provider, status, response.text().await.unwrap_or_default()));

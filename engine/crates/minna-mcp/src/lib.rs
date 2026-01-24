@@ -8,6 +8,7 @@ use tokio::sync::RwLock;
 use tracing::debug;
 
 use minna_auth_bridge::{Provider, TokenStore};
+use minna_core::{Checkpoint, CheckpointStore, LoadQuery};
 use minna_graph::{GraphStore, Ring};
 use minna_ingest::{Document, IngestionEngine};
 use minna_vector::{Embedder, VectorStore};
@@ -43,6 +44,28 @@ pub struct GetContextParams {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ReadResourceParams {
     pub uri: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SaveStateParams {
+    pub title: String,
+    pub summary: String,
+    pub task: String,
+    pub next_steps: String,
+    #[serde(default)]
+    pub files: Vec<String>,
+    #[serde(default = "default_trigger")]
+    pub trigger: String,
+}
+
+fn default_trigger() -> String {
+    "manual".to_string()
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct LoadStateParams {
+    pub title: Option<String>,
+    pub version: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -155,12 +178,78 @@ impl McpHandler {
                     error: Some(err.to_string()),
                 },
             },
+            Some("save_state") => match self.handle_save_state(request.params).await {
+                Ok(result) => ToolResponse {
+                    id,
+                    ok: true,
+                    result: Some(serde_json::json!({ "message": result })),
+                    error: None,
+                },
+                Err(err) => ToolResponse {
+                    id,
+                    ok: false,
+                    result: None,
+                    error: Some(err.to_string()),
+                },
+            },
+            Some("load_state") => match self.handle_load_state(request.params).await {
+                Ok(result) => ToolResponse {
+                    id,
+                    ok: true,
+                    result: Some(serde_json::json!({ "content": result })),
+                    error: None,
+                },
+                Err(err) => ToolResponse {
+                    id,
+                    ok: false,
+                    result: None,
+                    error: Some(err.to_string()),
+                },
+            },
             _ => ToolResponse {
                 id,
                 ok: false,
                 result: None,
                 error: Some("unknown tool".to_string()),
             },
+        }
+    }
+
+    async fn handle_save_state(&self, params: serde_json::Value) -> Result<String> {
+        let params: SaveStateParams = serde_json::from_value(params)
+            .map_err(|e| anyhow!("invalid save_state params: {}", e))?;
+
+        let checkpoint = Checkpoint::new(
+            params.title,
+            params.summary,
+            params.task,
+            params.next_steps,
+            params.files,
+            params.trigger,
+        );
+
+        let store = CheckpointStore::default_path();
+        let path = store.save(checkpoint)?;
+
+        Ok(format!(
+            "✅ Checkpoint saved to {}",
+            path.display()
+        ))
+    }
+
+    async fn handle_load_state(&self, params: serde_json::Value) -> Result<String> {
+        let params: LoadStateParams = serde_json::from_value(params).unwrap_or_default();
+
+        let query = match (params.title, params.version) {
+            (Some(title), Some(version)) => LoadQuery::exact(title, version),
+            (Some(title), None) => LoadQuery::by_title(title),
+            (None, _) => LoadQuery::latest(),
+        };
+
+        let store = CheckpointStore::default_path();
+        match store.load(query)? {
+            Some(checkpoint) => Ok(checkpoint.to_markdown()),
+            None => Err(anyhow!("no checkpoint found")),
         }
     }
 

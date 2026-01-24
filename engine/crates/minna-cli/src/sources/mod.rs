@@ -62,10 +62,11 @@ impl Source {
     pub fn instructions(&self) -> SourceInstructions {
         match self {
             Source::Slack => SourceInstructions {
-                title: "To connect Slack, you'll need a User OAuth Token.",
+                title: "Recommended: Connect Slack via Minna Auth Bridge (1-click).",
+                recommended_url: Some("https://auth.minna.cloud/api/connect/slack"),
                 steps: vec![
-                    "Go to: https://api.slack.com/apps",
-                    "Create an app (or select existing)",
+                    "Or manually: Go to https://api.slack.com/apps",
+                    "Create a 'Classic' app (or select existing)",
                     "Install to your workspace",
                     "Copy the User OAuth Token (starts with xoxp-)",
                 ],
@@ -75,9 +76,10 @@ impl Source {
                 },
             },
             Source::Linear => SourceInstructions {
-                title: "To connect Linear, you'll need an API key.",
+                title: "Recommended: Connect Linear via Minna Auth Bridge (1-click).",
+                recommended_url: Some("https://auth.minna.cloud/api/connect/linear"),
                 steps: vec![
-                    "Go to: https://linear.app/settings/api",
+                    "Or manually: Go to https://linear.app/settings/api",
                     "Create a new Personal API Key",
                     "Copy the key",
                 ],
@@ -86,12 +88,12 @@ impl Source {
                     prefix: None,
                 },
             },
-            Source::Github => SourceInstructions {
-                title: "To connect GitHub, you'll need a Personal Access Token.",
+                title: "Recommended: Connect GitHub via Minna Auth Bridge (1-click).",
+                recommended_url: Some("https://auth.minna.cloud/api/connect/github"),
                 steps: vec![
-                    "Go to: https://github.com/settings/tokens?type=beta",
-                    "Generate new token (fine-grained)",
-                    "Select repositories and permissions (Issues, PRs read access)",
+                    "Or manually: Go to https://github.com/settings/personal-access-tokens/new",
+                    "Generate new Fine-Grained token",
+                    "Select repositories and 'Metadata: Read', 'Issues: Read', 'Discussions: Read'",
                     "Copy the token",
                 ],
                 auth_type: AuthType::Token {
@@ -101,11 +103,12 @@ impl Source {
             },
             Source::Notion => SourceInstructions {
                 title: "To connect Notion, you'll need an Internal Integration Token.",
+                recommended_url: None, // Bridge punted for Tier 2 in 2026
                 steps: vec![
                     "Go to: https://www.notion.so/my-integrations",
-                    "Create new integration",
+                    "Create new integration (Internal)",
                     "Copy the Internal Integration Secret",
-                    "Share pages/databases with your integration in Notion",
+                    "Share relevant pages with your integration in Notion",
                 ],
                 auth_type: AuthType::Token {
                     prompt: "Paste your Notion integration token",
@@ -114,6 +117,7 @@ impl Source {
             },
             Source::Atlassian => SourceInstructions {
                 title: "To connect Atlassian, you'll need an API token and your email.",
+                recommended_url: None, // Bridge punted for Tier 2 in 2026
                 steps: vec![
                     "Go to: https://id.atlassian.com/manage-profile/security/api-tokens",
                     "Create API token",
@@ -122,13 +126,13 @@ impl Source {
                 auth_type: AuthType::AtlassianToken,
             },
             Source::Google => SourceInstructions {
-                title: "To connect Google, you'll need OAuth credentials from a Google Cloud project.",
+                title: "To connect Google, you'll need OAuth credentials (client_id/secret).",
+                recommended_url: None, // ⏳ Pending CASA Tier 2
                 steps: vec![
                     "Go to: https://console.cloud.google.com",
-                    "Create a project (or select existing)",
-                    "APIs & Services → Credentials → Create OAuth Client ID",
-                    "Application type: Desktop Application",
-                    "Copy the Client ID and Client Secret",
+                    "Enable Calendar/Drive/Gmail APIs",
+                    "Create OAuth Client ID (Desktop Application)",
+                    "Copy Client ID and Secret",
                 ],
                 auth_type: AuthType::GoogleOAuth,
             },
@@ -138,6 +142,7 @@ impl Source {
 
 pub struct SourceInstructions {
     pub title: &'static str,
+    pub recommended_url: Option<&'static str>,
     pub steps: Vec<&'static str>,
     pub auth_type: AuthType,
 }

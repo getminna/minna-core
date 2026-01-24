@@ -43,6 +43,14 @@ async fn connect_source(source: Source) -> Result<()> {
 
     // Show instructions
     ui::header(instructions.title);
+    
+    if let Some(url) = instructions.recommended_url {
+        ui::info(&format!("Link: {}", url));
+        if ui::prompt_confirm("Open browser for 1-click auth?")? {
+            open::that(url)?;
+        }
+    }
+    
     ui::steps(&instructions.steps);
 
     // Collect credentials based on auth type
@@ -306,12 +314,13 @@ async fn connect_google() -> Result<()> {
     println!("    • Gmail:    https://console.cloud.google.com/apis/library/gmail.googleapis.com");
     println!();
 
-    let client_id = ui::prompt_password("Paste your Client ID")?;
-    let client_secret = ui::prompt_password("Paste your Client Secret")?;
+    let client_id = ui::prompt_password("Paste your Client ID")?.trim().to_string();
+    let client_secret = ui::prompt_password("Paste your Client Secret")?.trim().to_string();
 
     // Build authorization URL
     let redirect_uri = "http://127.0.0.1:8847/callback";
     let scopes = [
+        "https://www.googleapis.com/auth/userinfo.email",
         "https://www.googleapis.com/auth/calendar.readonly",
         "https://www.googleapis.com/auth/drive.readonly",
         "https://www.googleapis.com/auth/gmail.readonly",

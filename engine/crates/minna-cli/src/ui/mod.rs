@@ -49,7 +49,7 @@ pub fn prompt_input(prompt: &str) -> anyhow::Result<String> {
     Ok(value)
 }
 
-/// Prompt for selection from a list
+/// Prompt for a selection from a list
 pub fn prompt_select(prompt: &str, items: &[&str]) -> anyhow::Result<usize> {
     let selection = FuzzySelect::with_theme(&ColorfulTheme::default())
         .with_prompt(prompt)
@@ -57,6 +57,16 @@ pub fn prompt_select(prompt: &str, items: &[&str]) -> anyhow::Result<usize> {
         .default(0)
         .interact()?;
     Ok(selection)
+}
+
+/// Prompt for a boolean confirmation
+pub fn prompt_confirm(prompt: &str) -> anyhow::Result<bool> {
+    use dialoguer::Confirm;
+    let result = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt(prompt)
+        .default(true)
+        .interact()?;
+    Ok(result)
 }
 
 /// Create a progress bar

@@ -80,6 +80,14 @@ enum Commands {
 
     /// Review and link user identities across sources
     Link,
+
+    /// Save checkpoint and prepare for context reset (used by hooks)
+    #[command(name = "checkpoint-and-clear")]
+    CheckpointAndClear {
+        /// Trigger type (auto-compact, auto-close, manual)
+        #[arg(long, short)]
+        trigger: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -146,5 +154,8 @@ async fn main() -> Result<()> {
         Some(Commands::Remove { source }) => commands::remove::run(&source).await,
         Some(Commands::Sync { sources, all }) => commands::sync::run(sources, all).await,
         Some(Commands::Link) => commands::link::run().await,
+        Some(Commands::CheckpointAndClear { trigger }) => {
+            commands::checkpoint::run(trigger).await
+        }
     }
 }
