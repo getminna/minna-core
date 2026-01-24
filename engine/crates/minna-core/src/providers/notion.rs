@@ -391,6 +391,7 @@ struct NotionSearchResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct NotionObject {
     object: String,
     id: String,

@@ -262,42 +262,58 @@ async fn trigger_sync(source: Source) -> Result<()> {
     }
 
     let client = AdminClient::new();
+    let display_name = source.display_name();
 
     // Map source to provider name
     let provider_name = match source {
         Source::Slack => "slack",
         Source::Linear => "linear",
         Source::Github => "github",
-        Source::Notion => "notion", // Note: may not be implemented in daemon yet
-        Source::Atlassian => "atlassian", // Note: may not be implemented in daemon yet
+        Source::Notion => "notion",
+        Source::Atlassian => "atlassian",
         Source::Google => "google",
     };
 
-    // Start sync with sprint mode (recent items first)
-    let spinner = ui::spinner(&format!("Starting {} sync...", source.display_name()));
+    // 1. Phase 1: Quick Sync (7 days) - Real-time TUI progress
+    ui::header(&format!("Initializing {} Memory", display_name));
+    
+    let pb_sprint = ui::progress_bar(100, "Phase 1: Quick Sync (Last 7 Days)");
+    let pb_clone = pb_sprint.clone();
 
-    match client.sync_provider(provider_name, Some("sprint"), Some(7)).await {
-        Ok(result) => {
-            spinner.finish_and_clear();
-
-            if result.items_synced > 0 {
-                let pb = ui::progress_bar(result.items_synced as u64, "Sprint Sync");
-                pb.set_position(result.items_synced as u64);
-                pb.finish_with_message("done");
-            } else {
-                ui::success(&format!("{} sync started", source.display_name()));
+    match client.sync_provider(provider_name, Some("sprint"), Some(7), move |progress| {
+        if let Some(docs) = progress.documents_processed {
+            if docs as u64 > pb_clone.length().unwrap_or(0) {
+                pb_clone.set_length(docs as u64 + 10);
             }
+            pb_clone.set_position(docs as u64);
+            pb_clone.set_message(format!("{} documents", docs));
+        }
+    }).await {
+        Ok(result) => {
+            pb_sprint.set_position(pb_sprint.length().unwrap_or(result.items_synced as u64));
+            pb_sprint.finish_with_message("Done");
 
-            println!();
-            ui::background_notice(
-                "Deep sync running in background (90 days of history).",
-                "Run `minna status` to check progress.",
-            );
+            // 2. Phase 2: Deep Sync (Background)
+            let pb_deep = ui::progress_bar(100, "Phase 2: Deep Sync (90 Days)");
+            pb_deep.set_message("Sent to background scheduler");
+            pb_deep.set_position(0);
+            pb_deep.finish_with_message("Backgrounded");
+
+            // 3. Ready Box with Instant Recall messaging
+            let example_query = match source {
+                Source::Slack => "What is the status of Project Atlas?",
+                Source::Linear => "List my high priority tickets",
+                _ => "What was I working on yesterday?",
+            };
+            
+            ui::ready_box(example_query);
+
+            ui::info("Minna is now indexing your history in the background.");
+            ui::info("Run `minna status` to check deep sync progress.");
         }
         Err(e) => {
-            spinner.finish_and_clear();
-            // Don't fail the whole add operation if sync fails
-            ui::info(&format!("Sync will start when daemon is ready: {}", e));
+            pb_sprint.abandon_with_message("Paused");
+            ui::info(&format!("Initial sync paused: {}. Minna will retry in the background.", e));
         }
     }
 

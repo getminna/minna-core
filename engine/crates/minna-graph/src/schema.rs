@@ -51,7 +51,7 @@ impl NodeType {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "user" => Some(NodeType::User),
             "issue" => Some(NodeType::Issue),
@@ -136,7 +136,7 @@ impl Relation {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "assigned_to" => Some(Relation::AssignedTo),
             "author_of" => Some(Relation::AuthorOf),
@@ -391,7 +391,7 @@ mod tests {
             NodeType::File,
         ] {
             let s = node_type.as_str();
-            let parsed = NodeType::from_str(s).unwrap();
+            let parsed = NodeType::parse(s).unwrap();
             assert_eq!(node_type, parsed);
         }
     }
@@ -416,7 +416,7 @@ mod tests {
             Relation::Imports,
         ] {
             let s = relation.as_str();
-            let parsed = Relation::from_str(s).unwrap();
+            let parsed = Relation::parse(s).unwrap();
             assert_eq!(relation, parsed);
         }
     }

@@ -88,6 +88,7 @@ impl Source {
                     prefix: None,
                 },
             },
+            Source::Github => SourceInstructions {
                 title: "Recommended: Connect GitHub via Minna Auth Bridge (1-click).",
                 recommended_url: Some("https://auth.minna.cloud/api/connect/github"),
                 steps: vec![

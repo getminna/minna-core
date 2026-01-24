@@ -74,10 +74,11 @@ pub fn progress_bar(total: u64, message: &str) -> ProgressBar {
     let pb = ProgressBar::new(total);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("⚡ {msg}...  {bar:20.cyan/dim} {pos}/{len}")
+            .template("{prefix} {msg:.bold}  {bar:20.cyan/dim} {pos}/{len}")
             .unwrap()
             .progress_chars("█▓░"),
     );
+    pb.set_prefix(format!("{}", style("⚡").yellow()));
     pb.set_message(message.to_string());
     pb.enable_steady_tick(Duration::from_millis(100));
     pb
@@ -100,18 +101,22 @@ pub fn spinner(message: &str) -> ProgressBar {
 #[allow(dead_code)]
 pub fn ready_box(clipboard_text: &str) {
     let _term = Term::stdout();
-    let width = 56;
-    let border: String = "─".repeat(width);
+    let width = 58;
+    let border: String = style("─".repeat(width)).dim().to_string();
 
     println!();
     println!("{}", border);
-    println!("  {} Ready.", style("✔").green());
+    println!("  {} {}", style("✔").green(), style("Ready.").bold());
+    println!();
+    println!("  {} Your AI now has {} via Minna's Fast-Path.", 
+        style("→").cyan(),
+        style("Instant Recall").cyan().bold()
+    );
     println!();
     println!("  Copied to clipboard:");
+    println!("    {}", style(clipboard_text).yellow());
     println!();
-    println!("    {}", clipboard_text);
-    println!();
-    println!("  Paste into chat (⌘V) and hit Enter.");
+    println!("  Paste into chat (⌘V) to test the signal.");
     println!("{}", border);
     println!();
 }

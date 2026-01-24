@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use serde_json::json;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::ui;
 
@@ -148,10 +148,10 @@ fn detect_installed_tools() -> Vec<&'static AiTool> {
 }
 
 fn expand_path(path: &str) -> PathBuf {
-    if path.starts_with("~/") {
+    if let Some(stripped) = path.strip_prefix("~/") {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join(&path[2..])
+            .join(stripped)
     } else {
         PathBuf::from(path)
     }
@@ -230,7 +230,7 @@ async fn setup_tool(tool: &AiTool) -> Result<()> {
 }
 
 /// Inject MCP config into the appropriate location based on tool type
-fn inject_mcp_config(config: &mut serde_json::Value, tool_name: &str, socket_path: &PathBuf) {
+fn inject_mcp_config(config: &mut serde_json::Value, tool_name: &str, socket_path: &Path) {
     let minna_config = json!({
         "command": "nc",
         "args": ["-U", socket_path.to_string_lossy()],

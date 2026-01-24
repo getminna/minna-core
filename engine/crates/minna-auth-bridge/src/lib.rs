@@ -227,6 +227,12 @@ pub struct AuthBridge {
     http_client: Client,
 }
 
+impl Default for AuthBridge {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AuthBridge {
     pub fn new() -> Self {
         let http_client = Client::builder()

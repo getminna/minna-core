@@ -94,6 +94,8 @@ struct AdminResponse {
     result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    event: Option<minna_core::progress::InternalEvent>,
 }
 
 impl AdminHandler {
@@ -101,19 +103,21 @@ impl AdminHandler {
         Self { state }
     }
 
-    async fn handle(&self, request: AdminRequest) -> AdminResponse {
+    async fn handle(&self, request: AdminRequest, tx: tokio::sync::mpsc::UnboundedSender<(String, AdminResponse)>) {
         let tool = request.tool.clone().or(request.method.clone());
         let id = request.id.clone();
+        let id_log = id.clone().unwrap_or_else(|| "unknown".to_string());
 
         match tool.as_deref() {
-            // These tools work even before Core is ready
             Some("ping") => {
-                AdminResponse {
+                let response = AdminResponse {
                     id,
                     ok: true,
                     result: Some(serde_json::json!({"pong": true})),
                     error: None,
-                }
+                    event: None,
+                };
+                let _ = tx.send((id_log, response));
             }
             Some("get_status") => {
                 let ready = self.state.is_ready().await;
@@ -121,7 +125,7 @@ impl AdminHandler {
                     let mut scheduler = self.state.get_scheduler().await;
                     scheduler.stats()
                 };
-                AdminResponse {
+                let response = AdminResponse {
                     id,
                     ok: true,
                     result: Some(serde_json::json!({
@@ -136,303 +140,265 @@ impl AdminHandler {
                         }
                     })),
                     error: None,
-                }
+                    event: None,
+                };
+                let _ = tx.send((id_log, response));
             }
             Some("verify_credentials") => {
-                // Load TokenStore directly - works before Core is ready
-                let token_store = match TokenStore::load(&self.state.paths.auth_path) {
-                    Ok(store) => store,
-                    Err(err) => return AdminResponse {
-                        id,
-                        ok: false,
-                        result: None,
-                        error: Some(format!("Failed to load credentials: {}", err)),
-                    },
-                };
-
-                // Check each provider
-                let providers = [
-                    (Provider::Slack, "slack"),
-                    (Provider::Github, "github"),
-                    (Provider::Google, "google"),
-                    (Provider::Linear, "linear"),
-                ];
-
-                let mut results = serde_json::Map::new();
-                for (provider, name) in providers.iter() {
-                    let status = match token_store.get(*provider) {
-                        Some(token) => {
-                            // Check if token is expired
-                            let is_expired = token.expires_at
-                                .map(|exp| exp < chrono::Utc::now())
-                                .unwrap_or(false);
-
-                            if is_expired {
-                                serde_json::json!({
-                                    "configured": true,
-                                    "status": "expired",
-                                    "message": "Token has expired, needs refresh"
-                                })
-                            } else {
-                                serde_json::json!({
-                                    "configured": true,
-                                    "status": "ready",
-                                    "message": "Credentials found"
-                                })
-                            }
-                        }
-                        None => {
-                            serde_json::json!({
-                                "configured": false,
-                                "status": "not_configured",
-                                "message": "No credentials found"
-                            })
-                        }
-                    };
-                    results.insert(name.to_string(), status);
-                }
-
-                // Add local providers (always ready)
-                results.insert("cursor".to_string(), serde_json::json!({
-                    "configured": true,
-                    "status": "ready",
-                    "message": "Local provider"
-                }));
-                results.insert("claude_code".to_string(), serde_json::json!({
-                    "configured": true,
-                    "status": "ready",
-                    "message": "Local provider"
-                }));
-
-                AdminResponse {
-                    id,
-                    ok: true,
-                    result: Some(serde_json::Value::Object(results)),
-                    error: None,
-                }
+                self.handle_verify_credentials(id, id_log, tx).await;
             }
-
-            // These tools require Core to be ready
             Some("sync_provider") => {
-                let handler_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
-                info!("[SYNC_PROVIDER] Handler started: id={:?}", id);
-                
-                let core = match self.state.get_core().await {
-                    Some(c) => c,
-                    None => {
-                        info!("[SYNC_PROVIDER] Core not ready: id={:?}", id);
-                        return AdminResponse {
-                            id,
-                            ok: false,
-                            result: None,
-                            error: Some("Engine still initializing, please wait...".to_string()),
-                        };
-                    },
-                };
-
-                let provider = request.params.get("provider")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let mode = request.params.get("mode")
-                    .and_then(|v| v.as_str());
-                let since_days = request.params.get("since_days")
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v as i64);
-
-                info!("[SYNC_PROVIDER] Starting sync: id={:?}, provider={}, mode={:?}, since_days={:?}", id, provider, mode, since_days);
-
-                // Handle local-only providers that don't need network sync
-                if provider == "cursor" || provider == "claude_code" {
-                    info!("[SYNC_PROVIDER] Local provider, returning immediately: provider={}", provider);
-                    return AdminResponse {
-                        id,
-                        ok: true,
-                        result: Some(serde_json::json!({
-                            "provider": provider,
-                            "status": "complete",
-                            "message": "Local indexing not yet implemented",
-                            "items_synced": 0
-                        })),
-                        error: None,
-                    };
-                }
-
-                let sync_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
-                info!("[SYNC_PROVIDER] Calling sync function: provider={}, delay_from_handler_start_ms={}", provider, sync_start - handler_start);
-                
-                let result = match provider {
-                    // All providers now use the registry with Gravity Well edge extraction
-                    "google" | "google_drive" | "google_workspace" |
-                    "github" | "slack" | "linear" | "notion" | "atlassian" | "jira" | "confluence" => {
-                        let provider_name = match provider {
-                            "jira" | "confluence" => "atlassian",
-                            "google_drive" | "google_workspace" => "google",
-                            _ => provider,
-                        };
-                        info!("[SYNC_PROVIDER] Calling sync_via_registry for {}", provider_name);
-                        let registry = self.state.get_registry();
-                        core.sync_via_registry(registry, provider_name, since_days, mode).await
-                    },
-                    _ => {
-                        info!("[SYNC_PROVIDER] Unknown provider: {}", provider);
-                        return AdminResponse {
-                            id,
-                            ok: false,
-                            result: None,
-                            error: Some(format!("unknown provider: {}", provider)),
-                        };
-                    },
-                };
-                
-                let sync_end = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
-                info!("[SYNC_PROVIDER] Sync function completed: provider={}, duration_ms={}", provider, sync_end - sync_start);
-
-                match result {
-                    Ok(summary) => {
-                        // Record API usage with scheduler (estimate calls from items)
-                        let api_calls = (summary.documents_processed as u32 / 10).max(1);
-                        {
-                            let mut scheduler = self.state.get_scheduler().await;
-                            // On-demand syncs are treated as Ring::One
-                            scheduler.complete_sync(provider, Ring::One, api_calls);
-                        }
-                        AdminResponse {
-                            id,
-                            ok: true,
-                            result: Some(serde_json::to_value(summary).unwrap_or_default()),
-                            error: None,
-                        }
-                    },
-                    Err(err) => {
-                        // Record failure
-                        {
-                            let mut scheduler = self.state.get_scheduler().await;
-                            scheduler.fail_sync(provider);
-                        }
-                        AdminResponse {
-                            id,
-                            ok: false,
-                            result: None,
-                            error: Some(err.to_string()),
-                        }
-                    },
-                }
+                self.handle_sync_provider(id, id_log, request, tx).await;
             }
             Some("discover") => {
-                let handler_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
-                info!("[DISCOVER] Handler started: id={:?}", id);
-                
-                let core = match self.state.get_core().await {
-                    Some(c) => c,
-                    None => {
-                        info!("[DISCOVER] Core not ready: id={:?}", id);
-                        return AdminResponse {
-                            id,
-                            ok: false,
-                            result: None,
-                            error: Some("Engine still initializing, please wait...".to_string()),
-                        };
-                    },
-                };
-
-                let provider = request.params.get("provider")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-
-                info!("[DISCOVER] Starting discovery: id={:?}, provider={}", id, provider);
-
-                let discover_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
-                info!("[DISCOVER] Calling discover function: provider={}, delay_from_handler_start_ms={}", provider, discover_start - handler_start);
-                
-                let result = match provider {
-                    "slack" => {
-                        info!("[DISCOVER] Calling discover_slack");
-                        core.discover_slack().await
-                    }
-                    "google" | "google_drive" => {
-                        info!("[DISCOVER] Calling discover_google_drive");
-                        core.discover_google_drive().await
-                    }
-                    "github" => {
-                        info!("[DISCOVER] Calling discover_github");
-                        core.discover_github().await
-                    }
-                    _ => {
-                        info!("[DISCOVER] Unknown provider: {}", provider);
-                        return AdminResponse {
-                            id,
-                            ok: true,
-                            result: Some(serde_json::json!({
-                                "provider": provider,
-                                "error": "discovery not implemented for this provider"
-                            })),
-                            error: None,
-                        };
-                    }
-                };
-                
-                let discover_end = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
-                info!("[DISCOVER] Discover function completed: provider={}, duration_ms={}", provider, discover_end - discover_start);
-                
-                match result {
-                    Ok(val) => {
-                        info!("[DISCOVER] Discovery succeeded: provider={}, id={:?}", provider, id);
-                        AdminResponse {
-                            id,
-                            ok: true,
-                            result: Some(val),
-                            error: None,
-                        }
-                    }
-                    Err(err) => {
-                        let err_str = err.to_string();
-                        info!("[DISCOVER] Discovery failed: provider={}, id={:?}, error={}", provider, id, err_str);
-                        AdminResponse {
-                            id,
-                            ok: false,
-                            result: None,
-                            error: Some(err_str),
-                        }
-                    }
-                }
+                self.handle_discover(id, id_log, request, tx).await;
             }
             Some("reset") => {
-                let core = match self.state.get_core().await {
-                    Some(c) => c,
-                    None => return AdminResponse {
-                        id,
-                        ok: false,
-                        result: None,
-                        error: Some("Engine still initializing, please wait...".to_string()),
-                    },
+                self.handle_reset(id, id_log, request, tx).await;
+            }
+            _ => {
+                let response = AdminResponse {
+                    id,
+                    ok: false,
+                    result: None,
+                    error: Some("unknown admin tool".to_string()),
+                    event: None,
+                };
+                let _ = tx.send((id_log, response));
+            }
+        }
+    }
+
+    async fn handle_verify_credentials(&self, id: Option<String>, id_log: String, tx: tokio::sync::mpsc::UnboundedSender<(String, AdminResponse)>) {
+        // Load TokenStore directly - works before Core is ready
+        let token_store = match TokenStore::load(&self.state.paths.auth_path) {
+            Ok(store) => store,
+            Err(err) => {
+                let response = AdminResponse {
+                    id,
+                    ok: false,
+                    result: None,
+                    error: Some(format!("Failed to load credentials: {}", err)),
+                    event: None,
+                };
+                let _ = tx.send((id_log, response));
+                return;
+            }
+        };
+
+        // Check each provider
+        let providers = [
+            (Provider::Slack, "slack"),
+            (Provider::Github, "github"),
+            (Provider::Google, "google"),
+            (Provider::Linear, "linear"),
+        ];
+
+        let mut results = serde_json::Map::new();
+        for (provider, name) in providers.iter() {
+            let status = match token_store.get(*provider) {
+                Some(token) => {
+                    let is_expired = token.expires_at
+                        .map(|exp| exp < chrono::Utc::now())
+                        .unwrap_or(false);
+
+                    if is_expired {
+                        serde_json::json!({ "configured": true, "status": "expired", "message": "Token has expired" })
+                    } else {
+                        serde_json::json!({ "configured": true, "status": "ready", "message": "Credentials found" })
+                    }
+                }
+                None => {
+                    serde_json::json!({ "configured": false, "status": "not_configured", "message": "No credentials found" })
+                }
+            };
+            results.insert(name.to_string(), status);
+        }
+
+        // Add local providers
+        results.insert("cursor".to_string(), serde_json::json!({ "configured": true, "status": "ready", "message": "Local provider" }));
+        results.insert("claude_code".to_string(), serde_json::json!({ "configured": true, "status": "ready", "message": "Local provider" }));
+
+        let response = AdminResponse {
+            id,
+            ok: true,
+            result: Some(serde_json::Value::Object(results)),
+            error: None,
+            event: None,
+        };
+        let _ = tx.send((id_log, response));
+    }
+
+    async fn handle_sync_provider(&self, id: Option<String>, id_log: String, request: AdminRequest, tx: tokio::sync::mpsc::UnboundedSender<(String, AdminResponse)>) {
+        
+        let core = match self.state.get_core().await {
+            Some(c) => c,
+            None => {
+                let response = AdminResponse {
+                    id,
+                    ok: false,
+                    result: None,
+                    error: Some("Engine still initializing, please wait...".to_string()),
+                    event: None,
+                };
+                let _ = tx.send((id_log, response));
+                return;
+            },
+        };
+
+        let provider = request.params.get("provider").and_then(|v| v.as_str()).unwrap_or("");
+        let mode = request.params.get("mode").and_then(|v| v.as_str());
+        let since_days = request.params.get("since_days").and_then(|v| v.as_u64()).map(|v| v as i64);
+
+        info!("[SYNC_PROVIDER] Starting sync: provider={}, mode={:?}", provider, mode);
+
+        // Subscribe to progress events
+        let mut progress_rx = minna_core::progress::subscribe_progress();
+        let tx_clone = tx.clone();
+        let id_clone = id.clone();
+        let id_log_clone = id_log.clone();
+        let provider_name = provider.to_string();
+
+        let progress_task = tokio::spawn(async move {
+            while let Ok(event) = progress_rx.recv().await {
+                let matches = match &event {
+                    minna_core::progress::InternalEvent::Progress(p) => p.provider == provider_name,
+                    minna_core::progress::InternalEvent::Result(r) => r.result_type == "sync"
                 };
 
-                let provider = request.params.get("provider")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-
-                match core.reset_provider(provider).await {
-                    Ok(_) => AdminResponse {
-                        id,
+                if matches {
+                    let response = AdminResponse {
+                        id: id_clone.clone(),
                         ok: true,
-                        result: Some(serde_json::json!({ "status": "reset_complete" })),
-                        error: None,
-                    },
-                    Err(err) => AdminResponse {
-                        id,
-                        ok: false,
                         result: None,
-                        error: Some(err.to_string()),
-                    },
+                        error: None,
+                        event: Some(event),
+                    };
+                    if tx_clone.send((id_log_clone.clone(), response)).is_err() {
+                        break;
+                    }
                 }
             }
-            _ => AdminResponse {
+        });
+
+        // Handle local-only
+        if provider == "cursor" || provider == "claude_code" {
+            let response = AdminResponse {
                 id,
-                ok: false,
-                result: None,
-                error: Some("unknown admin tool".to_string()),
-            },
+                ok: true,
+                result: Some(serde_json::json!({ "provider": provider, "status": "complete", "items_synced": 0 })),
+                error: None,
+                event: None,
+            };
+            let _ = tx.send((id_log, response));
+            progress_task.abort();
+            return;
         }
+
+        let result = match provider {
+            "google" | "google_drive" | "google_workspace" |
+            "github" | "slack" | "linear" | "notion" | "atlassian" | "jira" | "confluence" => {
+                let target = match provider {
+                    "jira" | "confluence" => "atlassian",
+                    "google_drive" | "google_workspace" => "google",
+                    _ => provider,
+                };
+                let registry = self.state.get_registry();
+                core.sync_via_registry(registry, target, since_days, mode).await
+            },
+            _ => {
+                let response = AdminResponse {
+                    id,
+                    ok: false,
+                    result: None,
+                    error: Some(format!("unknown provider: {}", provider)),
+                    event: None,
+                };
+                let _ = tx.send((id_log, response));
+                progress_task.abort();
+                return;
+            }
+        };
+
+        match result {
+            Ok(summary) => {
+                let api_calls = (summary.documents_processed as u32 / 10).max(1);
+                {
+                    let mut scheduler = self.state.get_scheduler().await;
+                    scheduler.complete_sync(provider, Ring::One, api_calls);
+                }
+                let response = AdminResponse {
+                    id,
+                    ok: true,
+                    result: Some(serde_json::to_value(summary).unwrap_or_default()),
+                    error: None,
+                    event: None,
+                };
+                let _ = tx.send((id_log, response));
+            },
+            Err(err) => {
+                {
+                    let mut scheduler = self.state.get_scheduler().await;
+                    scheduler.fail_sync(provider);
+                }
+                let response = AdminResponse {
+                    id,
+                    ok: false,
+                    result: None,
+                    error: Some(err.to_string()),
+                    event: None,
+                };
+                let _ = tx.send((id_log, response));
+            }
+        }
+        progress_task.abort();
+    }
+
+    async fn handle_discover(&self, id: Option<String>, id_log: String, request: AdminRequest, tx: tokio::sync::mpsc::UnboundedSender<(String, AdminResponse)>) {
+        let core = match self.state.get_core().await {
+            Some(c) => c,
+            None => {
+                let response = AdminResponse { id, ok: false, result: None, error: Some("Engine still initializing...".to_string()), event: None };
+                let _ = tx.send((id_log, response));
+                return;
+            }
+        };
+
+        let provider = request.params.get("provider").and_then(|v| v.as_str()).unwrap_or("");
+        let result = match provider {
+            "slack" => core.discover_slack().await,
+            "google" | "google_drive" => core.discover_google_drive().await,
+            "github" => core.discover_github().await,
+            _ => {
+                let response = AdminResponse { id, ok: true, result: Some(serde_json::json!({ "provider": provider, "error": "discovery not implemented" })), error: None, event: None };
+                let _ = tx.send((id_log, response));
+                return;
+            }
+        };
+        
+        let response = match result {
+            Ok(val) => AdminResponse { id, ok: true, result: Some(val), error: None, event: None },
+            Err(err) => AdminResponse { id, ok: false, result: None, error: Some(err.to_string()), event: None },
+        };
+        let _ = tx.send((id_log, response));
+    }
+
+    async fn handle_reset(&self, id: Option<String>, id_log: String, request: AdminRequest, tx: tokio::sync::mpsc::UnboundedSender<(String, AdminResponse)>) {
+        let core = match self.state.get_core().await {
+            Some(c) => c,
+            None => {
+                let response = AdminResponse { id, ok: false, result: None, error: Some("Engine still initializing...".to_string()), event: None };
+                let _ = tx.send((id_log, response));
+                return;
+            }
+        };
+
+        let provider = request.params.get("provider").and_then(|v| v.as_str()).unwrap_or("");
+        let response = match core.reset_provider(provider).await {
+            Ok(_) => AdminResponse { id, ok: true, result: Some(serde_json::json!({ "status": "reset_complete" })), error: None, event: None },
+            Err(err) => AdminResponse { id, ok: false, result: None, error: Some(err.to_string()), event: None },
+        };
+        let _ = tx.send((id_log, response));
     }
 }
 
@@ -753,7 +719,6 @@ async fn handle_admin_client(
         request_counter += 1;
         
         let handler_clone = handler.clone();
-        let tx_clone = tx.clone();
         
         match serde_json::from_str::<AdminRequest>(trimmed) {
             Ok(request) => {
@@ -764,16 +729,12 @@ async fn handle_admin_client(
                 info!("[ADMIN] Parsed request: id={}, tool={}, counter={}", request_id, tool, current_counter);
                 
                 // Spawn each request handler in its own task so they can run concurrently
-                let request_id_log = request_id.clone();
-                let tool_log = tool.clone();
+                let id_clone = request_id.clone();
+                let tx_inner = tx.clone();
                 tokio::spawn(async move {
                     let spawn_timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
-                    info!("[ADMIN] Handler task spawned: id={}, tool={}, delay_ms={}", request_id_log, tool_log, spawn_timestamp - timestamp);
-                    let handler_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
-                    let response = handler_clone.handle(request).await;
-                    let handler_end = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
-                    info!("[ADMIN] Handler completed: id={}, tool={}, duration_ms={}", request_id_log, tool_log, handler_end - handler_start);
-                    let _ = tx_clone.send((request_id_log, response));
+                    info!("[ADMIN] Handler task spawned: id={}, delay_ms={}", id_clone, spawn_timestamp - timestamp);
+                    handler_clone.handle(request, tx_inner).await;
                 });
             }
             Err(err) => {
@@ -783,6 +744,7 @@ async fn handle_admin_client(
                     ok: false,
                     result: None,
                     error: Some(format!("invalid request: {}", err)),
+                    event: None,
                 };
                 let _ = tx.send((format!("req_{}", current_counter), response));
             }

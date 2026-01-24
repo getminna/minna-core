@@ -175,7 +175,7 @@ impl SyncProvider for LinearProvider {
                     edges_extracted += edges.len();
                 }
 
-                if docs_indexed % 10 == 0 {
+                if docs_indexed.is_multiple_of(10) {
                     emit_progress(
                         "linear",
                         "syncing",

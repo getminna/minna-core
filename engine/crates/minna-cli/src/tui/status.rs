@@ -41,6 +41,7 @@ struct SourceState {
 }
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 enum SourceStatus {
     Ready,
     Syncing,
@@ -195,7 +196,7 @@ fn render_sources(frame: &mut Frame, area: Rect, state: &MockState) {
             Span::styled(format!(" {} ", status_icon), status_style),
             Span::styled(format!("{:<12}", source.name), Style::default().fg(theme::SIGNAL_GREEN)),
             Span::styled(docs_str, theme::muted()),
-            Span::styled(format!("{}", source.last_sync), theme::muted()),
+            Span::styled(source.last_sync.to_string(), theme::muted()),
         ]));
     }
 

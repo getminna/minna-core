@@ -127,7 +127,7 @@ impl SyncProvider for GithubProvider {
                     edges_extracted += edges.len();
                 }
 
-                if docs_indexed % 5 == 0 {
+                if docs_indexed.is_multiple_of(5) {
                     emit_progress(
                         "github",
                         "syncing",

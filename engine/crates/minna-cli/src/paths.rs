@@ -26,6 +26,7 @@ pub fn get_socket_path() -> PathBuf {
 }
 
 /// Get the admin socket path (used by CLI to control daemon)
+#[allow(dead_code)]
 pub fn get_admin_socket_path() -> PathBuf {
     get_data_dir().join("admin.sock")
 }
@@ -36,6 +37,7 @@ pub fn get_pid_file() -> PathBuf {
 }
 
 /// Get the database path
+#[allow(dead_code)]
 pub fn get_db_path() -> PathBuf {
     get_data_dir().join("minna.db")
 }

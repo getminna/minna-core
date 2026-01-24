@@ -180,7 +180,7 @@ impl GraphStore {
         Ok(row.map(|(id, node_type, provider, external_id, display_name, metadata, first_seen_at, last_seen_at)| {
             GraphNode {
                 id,
-                node_type: NodeType::from_str(&node_type).unwrap_or(NodeType::User),
+                node_type: NodeType::parse(&node_type).unwrap_or(NodeType::User),
                 provider,
                 external_id,
                 display_name,
@@ -212,7 +212,7 @@ impl GraphStore {
                     id,
                     from_node,
                     to_node,
-                    relation: Relation::from_str(&relation).unwrap_or(Relation::References),
+                    relation: Relation::parse(&relation).unwrap_or(Relation::References),
                     provider,
                     observed_at: DateTime::parse_from_rfc3339(&observed_at)
                         .map(|dt| dt.with_timezone(&Utc))
@@ -241,7 +241,7 @@ impl GraphStore {
                     id,
                     from_node,
                     to_node,
-                    relation: Relation::from_str(&relation).unwrap_or(Relation::References),
+                    relation: Relation::parse(&relation).unwrap_or(Relation::References),
                     provider,
                     observed_at: DateTime::parse_from_rfc3339(&observed_at)
                         .map(|dt| dt.with_timezone(&Utc))
@@ -377,7 +377,7 @@ impl GraphStore {
             .map(|(id, node_type, provider, external_id, display_name, metadata, first_seen_at, last_seen_at)| {
                 GraphNode {
                     id,
-                    node_type: NodeType::from_str(&node_type).unwrap_or(NodeType::User),
+                    node_type: NodeType::parse(&node_type).unwrap_or(NodeType::User),
                     provider,
                     external_id,
                     display_name,

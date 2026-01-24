@@ -13,7 +13,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Paragraph},
     Frame, Terminal,
 };
 use std::io;
@@ -29,7 +29,6 @@ const TOOLS: &[(&str, &str, &str)] = &[
 ];
 
 struct SetupState {
-    tool: String,
     tool_display: String,
     config_path: String,
     phase: SetupPhase,
@@ -60,7 +59,6 @@ pub async fn run_test(tool: Option<String>) -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut state = SetupState {
-        tool: tool_id.to_string(),
         tool_display: tool_display.to_string(),
         config_path: config_path.to_string(),
         phase: SetupPhase::Detected,

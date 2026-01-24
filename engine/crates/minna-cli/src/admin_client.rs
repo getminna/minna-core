@@ -14,10 +14,10 @@ pub struct AdminRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct AdminResponse {
-    pub id: Option<String>,
     pub ok: bool,
     pub result: Option<serde_json::Value>,
     pub error: Option<String>,
+    pub event: Option<minna_core::progress::InternalEvent>,
 }
 
 pub struct AdminClient {
@@ -54,17 +54,6 @@ impl AdminClient {
 
         let response: AdminResponse = serde_json::from_str(&line)?;
         Ok(response)
-    }
-
-    pub async fn ping(&self) -> Result<bool> {
-        let response = self
-            .send(AdminRequest {
-                id: Some("ping".to_string()),
-                method: "ping".to_string(),
-                params: None,
-            })
-            .await?;
-        Ok(response.ok)
     }
 
     pub async fn get_status(&self) -> Result<DaemonStatus> {
@@ -119,12 +108,16 @@ impl AdminClient {
         Ok(CredentialsStatus { providers })
     }
 
-    pub async fn sync_provider(
+    pub async fn sync_provider<F>(
         &self,
         provider: &str,
         mode: Option<&str>,
         since_days: Option<i64>,
-    ) -> Result<SyncResult> {
+        mut progress_callback: F,
+    ) -> Result<SyncResult>
+    where
+        F: FnMut(minna_core::progress::ProgressEvent),
+    {
         let mut params = serde_json::json!({
             "provider": provider,
         });
@@ -136,30 +129,49 @@ impl AdminClient {
             params["since_days"] = serde_json::Value::Number(days.into());
         }
 
-        let response = self
-            .send(AdminRequest {
-                id: Some(format!("sync_{}", provider)),
-                method: "sync_provider".to_string(),
-                params: Some(params),
-            })
-            .await?;
+        let request = AdminRequest {
+            id: Some(format!("sync_{}", provider)),
+            method: "sync_provider".to_string(),
+            params: Some(params),
+        };
 
-        if !response.ok {
-            return Err(anyhow!(
-                response.error.unwrap_or_else(|| "Sync failed".to_string())
-            ));
+        let mut stream = UnixStream::connect(&self.socket_path).await.map_err(|e| {
+            anyhow!("Cannot connect to daemon at {}: {}", self.socket_path.display(), e)
+        })?;
+
+        let payload = serde_json::to_string(&request)?;
+        stream.write_all(payload.as_bytes()).await?;
+        stream.write_all(b"\n").await?;
+
+        let mut reader = BufReader::new(stream);
+        loop {
+            let mut line = String::new();
+            if reader.read_line(&mut line).await? == 0 {
+                return Err(anyhow!("Connection closed before sync completed"));
+            }
+
+            let response: AdminResponse = serde_json::from_str(&line)?;
+
+            if !response.ok {
+                return Err(anyhow!(response.error.unwrap_or_else(|| "Sync failed".to_string())));
+            }
+
+            if let Some(event) = response.event {
+                match event {
+                    minna_core::progress::InternalEvent::Progress(p) => {
+                        progress_callback(p);
+                    }
+                    minna_core::progress::InternalEvent::Result(_) => {
+                        // Results are usually redundant with the final return value
+                    }
+                }
+            } else if let Some(result) = response.result {
+                // This is the final result
+                return Ok(SyncResult {
+                    items_synced: result["documents_processed"].as_u64().unwrap_or(0) as usize,
+                });
+            }
         }
-
-        let result = response.result.unwrap_or_default();
-        Ok(SyncResult {
-            provider: provider.to_string(),
-            status: result["status"]
-                .as_str()
-                .unwrap_or("complete")
-                .to_string(),
-            items_synced: result["items_synced"].as_u64().unwrap_or(0) as usize,
-            message: result["message"].as_str().map(|s| s.to_string()),
-        })
     }
 }
 
@@ -184,10 +196,7 @@ pub struct ProviderStatus {
 
 #[derive(Debug)]
 pub struct SyncResult {
-    pub provider: String,
-    pub status: String,
     pub items_synced: usize,
-    pub message: Option<String>,
 }
 
 fn get_admin_socket_path() -> PathBuf {

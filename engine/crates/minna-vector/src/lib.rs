@@ -380,6 +380,7 @@ pub fn embedder_from_env_or_hash() -> Arc<dyn Embedder> {
     }
 }
 
+#[allow(clippy::missing_transmute_annotations)]
 fn register_sqlite_vec() {
     static INIT: Once = Once::new();
     INIT.call_once(|| unsafe {

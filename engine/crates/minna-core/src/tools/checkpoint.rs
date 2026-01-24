@@ -330,7 +330,7 @@ impl CheckpointStore {
 
         for entry in entries {
             let path = entry.path();
-            if !path.extension().map_or(false, |e| e == "md") {
+            if path.extension().is_none_or(|e| e != "md") {
                 continue;
             }
 
@@ -357,7 +357,7 @@ impl CheckpointStore {
                 .metadata()
                 .ok()
                 .and_then(|m| m.modified().ok())
-                .map(|t| DateTime::<Utc>::from(t))
+                .map(DateTime::<Utc>::from)
                 .unwrap_or_else(Utc::now);
 
             candidates.push((path, mtime, version));
@@ -403,7 +403,7 @@ impl CheckpointStore {
 
         for entry in fs::read_dir(&self.base_dir)?.flatten() {
             let path = entry.path();
-            if !path.extension().map_or(false, |e| e == "md") {
+            if path.extension().is_none_or(|e| e != "md") {
                 continue;
             }
 

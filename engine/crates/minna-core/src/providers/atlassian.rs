@@ -147,7 +147,7 @@ impl AtlassianProvider {
         loop {
             let response = call_with_backoff("jira", || {
                 ctx.http_client
-                    .get(&format!("{}/search", base_url))
+                    .get(format!("{}/search", base_url))
                     .basic_auth(email, Some(token))
                     .query(&[
                         ("jql", jql.as_str()),
@@ -180,7 +180,7 @@ impl AtlassianProvider {
                     uri: browse_url.clone(),
                     source: "jira".to_string(),
                     title: Some(format!("{}: {}", issue.key, issue.fields.summary)),
-                    body: self.format_jira_body(&issue, &description, &browse_url),
+                    body: self.format_jira_body(issue, &description, &browse_url),
                     updated_at: parse_atlassian_timestamp(&issue.fields.updated)
                         .unwrap_or_else(Utc::now),
                 };
@@ -285,7 +285,6 @@ impl AtlassianProvider {
                     if updated_dt < since {
                         // Pages are sorted by lastUpdated desc, so we can stop
                         info!("Reached pages older than since timestamp");
-                        next_link = None;
                         break;
                     }
                 }
@@ -308,7 +307,7 @@ impl AtlassianProvider {
                     uri: page_url.clone(),
                     source: "confluence".to_string(),
                     title: Some(page.title.clone()),
-                    body: self.format_confluence_body(&page, &content, &page_url),
+                    body: self.format_confluence_body(page, &content, &page_url),
                     updated_at: updated.unwrap_or_else(Utc::now),
                 };
 
@@ -503,6 +502,7 @@ fn parse_atlassian_timestamp(ts: &str) -> Option<DateTime<Utc>> {
 // ---- Atlassian API Response Types ----
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct AtlassianResource {
     id: String,
     url: String,
@@ -514,6 +514,7 @@ struct AtlassianResource {
 // Jira types
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct JiraSearchResponse {
     total: i64,
     #[serde(rename = "startAt")]
@@ -524,6 +525,7 @@ struct JiraSearchResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct JiraIssue {
     id: String,
     key: String,
@@ -533,6 +535,7 @@ struct JiraIssue {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct JiraIssueFields {
     summary: String,
     #[serde(default)]
@@ -567,6 +570,7 @@ struct JiraUser {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct JiraProject {
     key: String,
     name: String,
@@ -614,6 +618,7 @@ struct ConfluencePage {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ConfluenceSpace {
     key: String,
     name: String,

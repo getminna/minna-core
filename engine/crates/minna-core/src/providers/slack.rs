@@ -462,7 +462,7 @@ impl SlackProvider {
                                 edges_extracted += edges.len();
                             }
 
-                            if docs_indexed % 20 == 0 {
+                            if docs_indexed.is_multiple_of(20) {
                                 emit_progress(
                                     "slack",
                                     "syncing",

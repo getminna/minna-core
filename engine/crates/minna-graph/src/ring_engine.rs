@@ -298,7 +298,7 @@ impl RingEngine {
         let node_count = store.node_count().await?;
 
         // If graph has grown significantly, recalculate
-        if node_count as i64 > total_assigned * 2 {
+        if node_count > total_assigned * 2 {
             return Ok(true);
         }
 

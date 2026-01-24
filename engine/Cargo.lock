@@ -2017,6 +2017,7 @@ dependencies = [
  "minna-graph",
  "minna-ingest",
  "minna-vector",
+ "once_cell",
  "regex",
  "reqwest",
  "serde",

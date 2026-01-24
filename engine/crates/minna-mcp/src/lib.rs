@@ -443,11 +443,11 @@ fn extract_node_ids_from_doc(doc: &Document) -> Vec<String> {
     if source == "github" {
         if uri.contains("/pr/") || uri.contains("/pull/") {
             // Extract PR number from URI
-            if let Some(num) = uri.split('/').last() {
+            if let Some(num) = uri.split('/').next_back() {
                 ids.push(format!("pr:github:{}", num));
             }
         } else if uri.contains("/issues/") {
-            if let Some(num) = uri.split('/').last() {
+            if let Some(num) = uri.split('/').next_back() {
                 ids.push(format!("issue:github:{}", num));
             }
         }
@@ -455,7 +455,7 @@ fn extract_node_ids_from_doc(doc: &Document) -> Vec<String> {
 
     // Slack: slack://C123/1234567890.123456 -> message:slack:1234567890.123456
     if source == "slack" {
-        if let Some(ts) = uri.split('/').last() {
+        if let Some(ts) = uri.split('/').next_back() {
             if ts.contains('.') {
                 ids.push(format!("message:slack:{}", ts));
             }
@@ -532,6 +532,12 @@ pub struct UrlInterceptor {
     github: Regex,
     slack: Regex,
     linear: Regex,
+}
+
+impl Default for UrlInterceptor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl UrlInterceptor {

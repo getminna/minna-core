@@ -58,11 +58,21 @@ async fn sync_source(client: &AdminClient, source: Source) -> Result<()> {
         Source::Google => "google",
     };
 
-    let spinner = ui::spinner(&format!("Syncing {}...", source.display_name()));
+    let pb = ui::progress_bar(100, &format!("Syncing {}", source.display_name()));
+    let pb_clone = pb.clone();
 
-    match client.sync_provider(provider_name, None, Some(90)).await {
+    match client.sync_provider(provider_name, None, Some(90), move |progress| {
+        pb_clone.set_message(progress.message.to_string());
+        if let Some(docs) = progress.documents_processed {
+            if docs as u64 > pb_clone.length().unwrap_or(0) {
+                pb_clone.set_length(docs as u64 + 50);
+            }
+            pb_clone.set_position(docs as u64);
+        }
+    }).await {
         Ok(result) => {
-            spinner.finish_and_clear();
+            pb.set_position(pb.length().unwrap_or(result.items_synced as u64));
+            pb.finish_with_message("Done");
 
             if result.items_synced > 0 {
                 ui::success(&format!(
@@ -75,7 +85,7 @@ async fn sync_source(client: &AdminClient, source: Source) -> Result<()> {
             }
         }
         Err(e) => {
-            spinner.finish_and_clear();
+            pb.abandon_with_message("Failed");
             ui::error(&format!("{}: {}", source.display_name(), e));
         }
     }

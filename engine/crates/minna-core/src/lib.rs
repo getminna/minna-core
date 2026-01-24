@@ -398,7 +398,7 @@ impl Core {
                 };
                 let _ = self.index_document(doc).await?;
                 docs_indexed += 1;
-                if docs_indexed % 5 == 0 {
+                if docs_indexed.is_multiple_of(5) {
                     emit_progress("github", "syncing", &format!("Indexing issues: {} documents", docs_indexed), Some(docs_indexed));
                 }
             }
@@ -591,7 +591,7 @@ impl Core {
             for channel in &dms {
                 channels_scanned += 1;
                 let channel_name = channel.name.as_ref()
-                    .or_else(|| channel.name_normalized.as_ref())
+                    .or(channel.name_normalized.as_ref())
                     .map(|s| s.as_str())
                     .unwrap_or_else(|| if channel.is_im == Some(true) { "DM" } else { "Unnamed" });
                 info!("  -> Scanning channel: #{} ({})", channel_name, channel.id);
@@ -624,7 +624,7 @@ impl Core {
                 
                 if let Some(messages) = payload.messages {
                     let channel_name = channel.name.as_ref()
-                        .or_else(|| channel.name_normalized.as_ref())
+                        .or(channel.name_normalized.as_ref())
                         .map(|s| s.as_str())
                         .unwrap_or_else(|| if channel.is_im == Some(true) { "DM" } else { "Unnamed" });
                     info!("  -> Found {} messages in page for channel {}", messages.len(), channel_name);
@@ -649,7 +649,7 @@ impl Core {
                             let clean_body_text = clean_slack_text(text, &user_cache);
                             
                             let channel_name = channel.name.as_ref()
-                                .or_else(|| channel.name_normalized.as_ref())
+                                .or(channel.name_normalized.as_ref())
                                 .map(|s| s.as_str())
                                 .unwrap_or_else(|| if channel.is_im == Some(true) { "DM" } else { "Unnamed" });
                             let mut full_body = format!(
@@ -720,7 +720,7 @@ impl Core {
                             self.index_document(doc).await?;
                             docs_indexed += 1;
 
-                            if docs_indexed % 20 == 0 {
+                            if docs_indexed.is_multiple_of(20) {
                                 emit_progress("slack", "syncing", &format!("Scanning #{}: {} docs", channel_name, docs_indexed), Some(docs_indexed));
                             }
                         }
@@ -745,7 +745,7 @@ impl Core {
             for channel in &regular_channels {
                 channels_scanned += 1;
                 let channel_name = channel.name.as_ref()
-                    .or_else(|| channel.name_normalized.as_ref())
+                    .or(channel.name_normalized.as_ref())
                     .map(|s| s.as_str())
                     .unwrap_or_else(|| if channel.is_im == Some(true) { "DM" } else { "Unnamed" });
                 info!("  -> Scanning channel: #{} ({})", channel_name, channel.id);
@@ -778,7 +778,7 @@ impl Core {
                     
                     if let Some(messages) = payload.messages {
                         let channel_name = channel.name.as_ref()
-                            .or_else(|| channel.name_normalized.as_ref())
+                            .or(channel.name_normalized.as_ref())
                             .map(|s| s.as_str())
                             .unwrap_or_else(|| if channel.is_im == Some(true) { "DM" } else { "Unnamed" });
                         info!("  -> Found {} messages in page for channel {}", messages.len(), channel_name);
@@ -803,7 +803,7 @@ impl Core {
                                 let clean_body_text = clean_slack_text(text, &user_cache);
                                 
                                 let channel_name = channel.name.as_ref()
-                                    .or_else(|| channel.name_normalized.as_ref())
+                                    .or(channel.name_normalized.as_ref())
                                     .map(|s| s.as_str())
                                     .unwrap_or_else(|| if channel.is_im == Some(true) { "DM" } else { "Unnamed" });
                                 let mut full_body = format!(
@@ -874,7 +874,7 @@ impl Core {
                                 self.index_document(doc).await?;
                                 docs_indexed += 1;
 
-                                if docs_indexed % 20 == 0 {
+                                if docs_indexed.is_multiple_of(20) {
                                     emit_progress("slack", "syncing", &format!("Scanning #{}: {} docs", channel_name, docs_indexed), Some(docs_indexed));
                                 }
                             }
@@ -1004,7 +1004,7 @@ impl Core {
             };
 
             let channel_name = c.name.as_ref()
-                .or_else(|| c.name_normalized.as_ref())
+                .or(c.name_normalized.as_ref())
                 .cloned()
                 .unwrap_or_else(|| if c.is_im == Some(true) { "DM".to_string() } else { "Unnamed".to_string() });
             channel_list.push(serde_json::json!({
@@ -1141,7 +1141,7 @@ impl Core {
                 };
                 self.index_document(doc).await?;
                 docs_indexed += 1;
-                if docs_indexed % 10 == 0 {
+                if docs_indexed.is_multiple_of(10) {
                     emit_progress("linear", "syncing", &format!("Indexing: {} issues", docs_indexed), Some(docs_indexed));
                 }
             }
@@ -1605,7 +1605,7 @@ impl Core {
                 
                 // Fetch full message details
                 let msg_response = call_with_backoff("gmail", || {
-                    client.get(&format!("https://www.googleapis.com/gmail/v1/users/me/messages/{}", message_id))
+                    client.get(format!("https://www.googleapis.com/gmail/v1/users/me/messages/{}", message_id))
                         .bearer_auth(&token.access_token)
                         .query(&[("format", "full")])
                 }).await?;
@@ -1644,7 +1644,7 @@ impl Core {
                     updated_at: internal_date.parse::<i64>()
                         .ok()
                         .and_then(|ts| DateTime::from_timestamp(ts / 1000, 0))
-                        .unwrap_or_else(|| Utc::now()),
+                        .unwrap_or_else(Utc::now),
                 };
                 self.index_document(doc).await?;
                 emails_indexed += 1;
@@ -1994,6 +1994,7 @@ struct SlackResponseMetadata {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct SlackAuthTestResponse {
     ok: bool,
     user_id: Option<String>,
@@ -2037,6 +2038,7 @@ struct SlackMessage {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct SlackUsersResponse {
     ok: bool,
     members: Option<Vec<SlackUser>>,
@@ -2261,7 +2263,7 @@ pub fn check_entitlement(entitlement_path: &Path) -> EntitlementStatus {
 
 fn base64_url_decode(input: &str) -> Result<Vec<u8>> {
     let mut s = input.replace('-', "+").replace('_', "/");
-    while s.len() % 4 != 0 {
+    while !s.len().is_multiple_of(4) {
         s.push('=');
     }
     let decoded = base64::engine::general_purpose::STANDARD

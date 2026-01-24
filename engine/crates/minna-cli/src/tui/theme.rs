@@ -82,7 +82,6 @@ pub const DOUBLE_VERTICAL: &str = "║";
 
 pub const PROGRESS_FULL: &str = "█";
 pub const PROGRESS_EMPTY: &str = "░";
-pub const PROGRESS_PARTIAL: &str = "▓";
 
 /// Build a progress bar string
 pub fn progress_bar(progress: f64, width: usize) -> String {
@@ -95,17 +94,5 @@ pub fn progress_bar(progress: f64, width: usize) -> String {
     )
 }
 
-// ─────────────────────────────────────────────────────────────
-// ASCII art header
-// ─────────────────────────────────────────────────────────────
-
-pub const MINNA_HEADER: &str = r#"
-  ███╗   ███╗██╗███╗   ██╗███╗   ██╗ █████╗
-  ████╗ ████║██║████╗  ██║████╗  ██║██╔══██╗
-  ██╔████╔██║██║██╔██╗ ██║██╔██╗ ██║███████║
-  ██║╚██╔╝██║██║██║╚██╗██║██║╚██╗██║██╔══██║
-  ██║ ╚═╝ ██║██║██║ ╚████║██║ ╚████║██║  ██║
-  ╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚═╝  ╚═╝
-"#;
-
-pub const MINNA_SMALL: &str = "▓▓ MINNA";
+#[allow(dead_code)]
+pub const MINNA_BLUE: Color = Color::Rgb(59, 130, 246);

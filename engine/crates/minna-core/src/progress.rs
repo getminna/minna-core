@@ -1,10 +1,39 @@
-//! Structured progress emission for Swift IPC.
-//!
-//! This module provides functions to emit progress updates and results
-//! via stdout, following the MINNA_PROGRESS/MINNA_RESULT protocol.
-//! Swift parses these prefixed JSON lines to update UI state.
-
 use std::io::Write;
+use serde::{Deserialize, Serialize};
+use once_cell::sync::Lazy;
+use tokio::sync::broadcast;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProgressEvent {
+    pub provider: String,
+    pub status: String,
+    pub message: String,
+    pub documents_processed: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResultEvent {
+    pub result_type: String,
+    pub status: String,
+    pub data: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload")]
+pub enum InternalEvent {
+    Progress(ProgressEvent),
+    Result(ResultEvent),
+}
+
+static PROGRESS_TX: Lazy<broadcast::Sender<InternalEvent>> = Lazy::new(|| {
+    let (tx, _) = broadcast::channel(100);
+    tx
+});
+
+/// Subscribe to progress events
+pub fn subscribe_progress() -> broadcast::Receiver<InternalEvent> {
+    PROGRESS_TX.subscribe()
+}
 
 /// Emit a progress update to stdout for Swift to parse.
 ///
@@ -17,14 +46,19 @@ use std::io::Write;
 /// # Protocol
 /// Output format: `MINNA_PROGRESS:{"provider":"slack","status":"syncing",...}\n`
 pub fn emit_progress(provider: &str, status: &str, message: &str, docs: Option<usize>) {
-    let payload = serde_json::json!({
-        "provider": provider,
-        "status": status,
-        "message": message,
-        "documents_processed": docs
-    });
+    let payload = ProgressEvent {
+        provider: provider.to_string(),
+        status: status.to_string(),
+        message: message.to_string(),
+        documents_processed: docs,
+    };
+    
+    // 1. Emit to stdout for Swift app
     println!("MINNA_PROGRESS:{}", serde_json::to_string(&payload).unwrap());
     let _ = std::io::stdout().flush();
+
+    // 2. Broadcast to internal channel for Admin Socket
+    let _ = PROGRESS_TX.send(InternalEvent::Progress(payload));
 }
 
 /// Emit a final result to stdout for Swift to parse.
@@ -37,13 +71,18 @@ pub fn emit_progress(provider: &str, status: &str, message: &str, docs: Option<u
 /// # Protocol
 /// Output format: `MINNA_RESULT:{"type":"sync","status":"complete",...}\n`
 pub fn emit_result(result_type: &str, status: &str, data: serde_json::Value) {
-    let payload = serde_json::json!({
-        "type": result_type,
-        "status": status,
-        "data": data
-    });
+    let payload = ResultEvent {
+        result_type: result_type.to_string(),
+        status: status.to_string(),
+        data,
+    };
+
+    // 1. Emit to stdout for Swift app
     println!("MINNA_RESULT:{}", serde_json::to_string(&payload).unwrap());
     let _ = std::io::stdout().flush();
+
+    // 2. Broadcast to internal channel for Admin Socket
+    let _ = PROGRESS_TX.send(InternalEvent::Result(payload));
 }
 
 /// Emit an error progress update.
