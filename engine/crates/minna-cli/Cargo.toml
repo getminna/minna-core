@@ -11,7 +11,10 @@ path = "src/main.rs"
 
 [dependencies]
 minna-auth-bridge = { path = "../minna-auth-bridge" }
+minna-core = { path = "../minna-core" }
 minna-graph = { path = "../minna-graph" }
+minna-ingest = { path = "../minna-ingest" }
+minna-vector = { path = "../minna-vector" }
 
 anyhow.workspace = true
 sqlx = { workspace = true }

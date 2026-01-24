@@ -177,6 +177,14 @@ impl VectorStore {
         Ok(row.and_then(|(payload,)| serde_json::from_str(&payload).ok()))
     }
 
+    /// Get total vector count
+    pub async fn count(&self) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM vectors")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(count)
+    }
+
     pub async fn list_embeddings(&self) -> Result<Vec<StoredEmbedding>> {
         let rows = sqlx::query_as::<_, (i64, String, String)>(
             "SELECT doc_id, embedding, updated_at FROM vectors",

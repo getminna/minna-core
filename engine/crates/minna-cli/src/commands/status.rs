@@ -1,9 +1,14 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use console::style;
 use minna_graph::{GraphStore, IdentityService};
+use minna_ingest::IngestionEngine;
+use minna_vector::VectorStore;
 use serde::Serialize;
 use sqlx::sqlite::SqlitePoolOptions;
-use std::path::PathBuf;
 
 use crate::admin_client::AdminClient;
 use crate::ui;
@@ -114,10 +119,13 @@ pub async fn run(json: bool) -> Result<()> {
     let creds_status = client.verify_credentials().await.ok();
 
     // Get database stats
-    let db_stats = get_db_stats();
+    let db_stats = get_db_stats().await;
 
     // Get pending identity links
     let pending_links = get_pending_identity_links().await.unwrap_or(0);
+
+    // Get per-source document counts and sync times
+    let (doc_counts, sync_times) = get_source_stats().await.unwrap_or_default();
 
     // Build sources list from credentials
     let sources: Vec<SourceStatus> = if let Some(creds) = &creds_status {
@@ -132,8 +140,8 @@ pub async fn run(json: bool) -> Result<()> {
                 name: p.name.clone(),
                 status: p.status.clone(),
                 configured: p.configured,
-                documents: None, // TODO: Get per-source counts
-                last_sync: None, // TODO: Get last sync time
+                documents: doc_counts.get(&p.name).copied(),
+                last_sync: sync_times.get(&p.name).map(|dt| format_relative_time(*dt)),
             })
             .collect()
     } else {
@@ -251,18 +259,79 @@ pub async fn run(json: bool) -> Result<()> {
     Ok(())
 }
 
-fn get_db_stats() -> StorageStatus {
-    // Try to get database size
+async fn get_db_stats() -> StorageStatus {
     let db_path = get_db_path();
     let db_bytes = std::fs::metadata(&db_path)
         .map(|m| m.len())
         .unwrap_or(0);
 
-    // TODO: Get actual counts from database
+    // Try to get actual counts from database
+    let (documents, vectors) = match get_storage_counts().await {
+        Ok((d, v)) => (d, v),
+        Err(_) => (0, 0),
+    };
+
     StorageStatus {
-        documents: 0,
-        vectors: 0,
+        documents,
+        vectors,
         db_bytes,
+    }
+}
+
+async fn get_storage_counts() -> Result<(u64, u64)> {
+    let db_path = get_db_path();
+    if !db_path.exists() {
+        return Ok((0, 0));
+    }
+
+    let engine = IngestionEngine::new(&db_path).await?;
+    let vector_store = VectorStore::new(&db_path).await?;
+
+    let documents = engine.document_count().await.unwrap_or(0) as u64;
+    let vectors = vector_store.count().await.unwrap_or(0) as u64;
+
+    Ok((documents, vectors))
+}
+
+async fn get_source_stats() -> Result<(HashMap<String, u64>, HashMap<String, DateTime<Utc>>)> {
+    let db_path = get_db_path();
+    if !db_path.exists() {
+        return Ok((HashMap::new(), HashMap::new()));
+    }
+
+    let engine = IngestionEngine::new(&db_path).await?;
+
+    let doc_counts: HashMap<String, u64> = engine
+        .document_counts_by_source()
+        .await?
+        .into_iter()
+        .map(|(source, count)| (source, count as u64))
+        .collect();
+
+    let sync_times: HashMap<String, DateTime<Utc>> = engine
+        .get_sync_times()
+        .await?
+        .into_iter()
+        .collect();
+
+    Ok((doc_counts, sync_times))
+}
+
+fn format_relative_time(dt: DateTime<Utc>) -> String {
+    let now = Utc::now();
+    let duration = now.signed_duration_since(dt);
+
+    if duration.num_seconds() < 60 {
+        "just now".to_string()
+    } else if duration.num_minutes() < 60 {
+        let mins = duration.num_minutes();
+        format!("{} min ago", mins)
+    } else if duration.num_hours() < 24 {
+        let hours = duration.num_hours();
+        format!("{} hour{} ago", hours, if hours == 1 { "" } else { "s" })
+    } else {
+        let days = duration.num_days();
+        format!("{} day{} ago", days, if days == 1 { "" } else { "s" })
     }
 }
 

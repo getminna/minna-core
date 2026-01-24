@@ -321,4 +321,40 @@ impl IngestionEngine {
 
         Ok(row.and_then(|(cursor,)| cursor))
     }
+
+    /// Get total document count
+    pub async fn document_count(&self) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM documents")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(count)
+    }
+
+    /// Get document count per source
+    pub async fn document_counts_by_source(&self) -> Result<Vec<(String, i64)>> {
+        let rows = sqlx::query_as::<_, (String, i64)>(
+            "SELECT source, COUNT(*) FROM documents GROUP BY source",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Get last sync time per provider
+    pub async fn get_sync_times(&self) -> Result<Vec<(String, DateTime<Utc>)>> {
+        let rows = sqlx::query_as::<_, (String, String)>(
+            "SELECT provider, updated_at FROM sync_state",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(provider, updated_at)| {
+                DateTime::parse_from_rfc3339(&updated_at)
+                    .ok()
+                    .map(|dt| (provider, dt.with_timezone(&Utc)))
+            })
+            .collect())
+    }
 }
